@@ -1409,6 +1409,19 @@ struct task_struct {
 	/* Used by LSM modules for access restriction: */
 	void				*security;
 #endif
+<<<<<<< HEAD
+=======
+#ifdef CONFIG_BPF_SYSCALL
+	/* Used by BPF task local storage. */
+	struct bpf_local_storage __rcu	*bpf_storage;
+	/* Used for BPF run context. */
+	struct bpf_run_ctx		*bpf_ctx;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+	int				susfs_last_fake_mnt_id;
+#endif
+#endif
+
 #ifdef CONFIG_MTK_TASK_TURBO
 	unsigned short turbo:1;
 	unsigned short render:1;
