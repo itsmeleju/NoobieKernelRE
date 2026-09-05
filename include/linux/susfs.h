@@ -10,10 +10,14 @@
 #include <linux/statfs.h>
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 #define SUSFS_VERSION "v2.2.0"
 =======
 #define SUSFS_VERSION "v2.1.0"
 
+=======
+#define SUSFS_VERSION "v2.3.0"
+>>>>>>> ad0e28564 (susfs: clean re-port v2.3.0 for A325N 4.14)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,0,0)
 #define SUSFS_VARIANT "NON-GKI"
 #else

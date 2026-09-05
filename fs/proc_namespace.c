@@ -22,9 +22,10 @@
 #include "internal.h"
 
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-<<<<<<< HEAD
+
 extern struct static_key_false susfs_is_hide_sus_mnts_for_non_su_procs_enabled;
-<<<<<<< HEAD
+
+
   
 extern bool susfs_hide_sus_mnts_for_non_su_procs;
 extern bool susfs_is_current_ksu_domain(void);
@@ -51,6 +52,9 @@ static bool susfs_peer_group_is_visible(struct mnt_namespace *ns,
 
 	return false;
 }
+
+extern bool susfs_is_current_ksu_domain(void);
+
 #endif
 
 static unsigned mounts_poll(struct file *file, poll_table *wait)
@@ -137,9 +141,9 @@ static int show_vfsmnt(struct seq_file *m, struct vfsmount *mnt)
 	struct super_block *sb = mnt_path.dentry->d_sb;
 	int err;
 
-<<<<<<< HEAD
+
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-<<<<<<< HEAD
+
 	if (static_branch_unlikely(&susfs_is_hide_sus_mnts_for_non_su_procs_enabled) &&
   
 	if (READ_ONCE(susfs_hide_sus_mnts_for_non_su_procs) &&
@@ -188,9 +192,9 @@ static int show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
 	struct path mnt_path = { .dentry = mnt->mnt_root, .mnt = mnt };
 	int err;
 
-<<<<<<< HEAD
+
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-<<<<<<< HEAD
+
 	if (static_branch_unlikely(&susfs_is_hide_sus_mnts_for_non_su_procs_enabled) &&
   
 	if (READ_ONCE(susfs_hide_sus_mnts_for_non_su_procs) &&
@@ -267,9 +271,9 @@ static int show_vfsstat(struct seq_file *m, struct vfsmount *mnt)
 	struct super_block *sb = mnt_path.dentry->d_sb;
 	int err;
 
-<<<<<<< HEAD
+
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-<<<<<<< HEAD
+
 	if (static_branch_unlikely(&susfs_is_hide_sus_mnts_for_non_su_procs_enabled) &&
   
 	if (READ_ONCE(susfs_hide_sus_mnts_for_non_su_procs) &&
@@ -396,13 +400,9 @@ static int susfs_show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
 	if (IS_MNT_SLAVE(r)) {
 		int master = r->mnt_master->mnt_group_id;
 		int dom = get_dominating_id(r, &p->root);
-
-		/* Do not expose propagation references to hidden peer groups. */
-		if (susfs_peer_group_is_visible(p->ns, master)) {
-			seq_printf(m, " master:%i", master);
-			if (dom && dom != master)
-				seq_printf(m, " propagate_from:%i", dom);
-		}
+		seq_printf(m, " master:%i", master);
+		if (dom && dom != master)
+			seq_printf(m, " propagate_from:%i", dom);
 	}
 	if (IS_MNT_UNBINDABLE(r))
 		seq_puts(m, " unbindable");
@@ -478,7 +478,6 @@ static int susfs_show_vfsstat(struct seq_file *m, struct vfsmount *mnt)
 out:
 	return err;
 }
-
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 
 static int mounts_open_common(struct inode *inode, struct file *file,
@@ -549,8 +548,10 @@ static int mounts_release(struct inode *inode, struct file *file)
 static int mounts_open(struct inode *inode, struct file *file)
 {
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	if (susfs_should_filter_mountinfo())
-		return mounts_open_common(inode, file, susfs_show_vfsmnt);
+	if (static_branch_unlikely(&susfs_is_hide_sus_mnts_for_non_su_procs_enabled)) {
+		if (likely(!susfs_is_current_ksu_domain()))
+			return mounts_open_common(inode, file, susfs_show_vfsmnt);
+	}
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	return mounts_open_common(inode, file, show_vfsmnt);
 }
@@ -558,8 +559,10 @@ static int mounts_open(struct inode *inode, struct file *file)
 static int mountinfo_open(struct inode *inode, struct file *file)
 {
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	if (susfs_should_filter_mountinfo())
-		return mounts_open_common(inode, file, susfs_show_mountinfo);
+	if (static_branch_unlikely(&susfs_is_hide_sus_mnts_for_non_su_procs_enabled)) {
+		if (likely(!susfs_is_current_ksu_domain()))
+			return mounts_open_common(inode, file, susfs_show_mountinfo);
+	}
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	return mounts_open_common(inode, file, show_mountinfo);
 }
@@ -567,8 +570,10 @@ static int mountinfo_open(struct inode *inode, struct file *file)
 static int mountstats_open(struct inode *inode, struct file *file)
 {
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	if (susfs_should_filter_mountinfo())
-		return mounts_open_common(inode, file, susfs_show_vfsstat);
+	if (static_branch_unlikely(&susfs_is_hide_sus_mnts_for_non_su_procs_enabled)) {
+		if (likely(!susfs_is_current_ksu_domain()))
+			return mounts_open_common(inode, file, susfs_show_vfsstat);
+	}
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	return mounts_open_common(inode, file, show_vfsstat);
 }
