@@ -21,6 +21,10 @@
 #include <linux/mm_inline.h>
 #include <linux/freezer.h>
 
+#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)
+#include <linux/susfs_def.h>
+#endif
+
 #include <asm/elf.h>
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
@@ -801,6 +805,11 @@ static void smap_gather_stats(struct vm_area_struct *vma,
 #endif
 		.mm = vma->vm_mm,
 	};
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	if (vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
+		return;
+#endif
 
 	smaps_walk.private = mss;
 
