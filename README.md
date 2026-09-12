@@ -44,3 +44,4 @@ I’m currently working on ✨ **NoobieKernelRE** ✨ — a custom kernel focuse
 
 📲 **Follow for updates & releases:**  
 👉 [Join the Telegram Channel](https://t.me/Bootloopzz)
+
