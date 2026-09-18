@@ -8,7 +8,7 @@
 
  Massive respect to **Samsung-MT6769-Devs** and all the MTK developers who have contributed their work, patches, fixes, commits, research, and knowledge to the community.
 
- Without the MTK community, this project would probably be:
+ Without the MTK community, this project would not be possible at all:
 
 > Special Mention and credits to Original source by @realahnet - [Link](<https://github.com/realahnet/android_kernel_samsung_a32/tree/stock/A325FXXSADXG1>)
 
@@ -149,8 +149,6 @@
 
  **Please bring logs too.** 😭
 
- \<div align="center"\> ### 🫡 THANK YOU TO EVERYONE WHO CONTRIBUTED
+### 🫡 THANK YOU TO EVERYONE WHO CONTRIBUTED
 
  **Keep the A32 alive. Keep cooking. 🔥**
-
- \</div\>
