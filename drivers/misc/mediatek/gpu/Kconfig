@@ -14,6 +14,22 @@ config MTK_GPU_VERSION
 	  It has three parts
 	  1.vendor name 2.GPU architecture name 3. driver version
 
+choice
+	prompt "MediaTek Mali GPU Driver Version"
+	default MTK_GPU_MALI_R25P
+
+config MTK_GPU_MALI_R25P
+	bool "Mali Bifrost r25p0 Driver"
+	help
+	  Builds the legacy Mali Bifrost r25p0 driver for MT6768.
+
+config MTK_GPU_MALI_R32P
+	bool "Mali Valhall r32p1 Driver"
+	help
+	  Builds the updated Mali Valhall r32p1 driver for MT6768.
+
+endchoice
+
 config MTK_GPU_COMMON_DVFS_SUPPORT
 	bool "Support GPU VSync-Based DVFS Policy"
 	default n

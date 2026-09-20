@@ -1,2 +1,20 @@
-out/
-toolchain/
+/out/
+/out_testing/
+/toolchain/
+/clang/
+/build_noobie.sh
+/build_noobie_testing.sh
+build_noobie.sh
+build_noobie_testing.sh
+/*.log
+
+# Ignore generated flashable zips
+AnyKernel3/*.zip
+/*.zip
+
+# Ignore dynamically generated image/dtb outputs inside AnyKernel3
+AnyKernel3/Image*
+AnyKernel3/dtb*
+AnyKernel3/dtbo*
+AnyKernel3/*.dts
+
