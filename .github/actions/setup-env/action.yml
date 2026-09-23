@@ -1,0 +1,54 @@
+name: 'Setup Build Environment'
+description: 'Installs build dependencies, caches toolchain, and sets up ZyCromerZ Clang'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install System Dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          bison flex bc build-essential libssl-dev libncurses5-dev \
+          libncursesw5-dev libglib2.0-dev libpixman-1-dev python3 \
+          python-is-python3 liblz4-tool libtinfo5 u-boot-tools \
+          zip unzip ccache git wget curl ca-certificates
+
+    - name: Cache Toolchain
+      id: cache-clang
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/toolchain
+        key: zycromerz-clang-latest
+
+    - name: Download & Extract ZyCromerZ Clang
+      if: steps.cache-clang.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        mkdir -p ${{ github.workspace }}/toolchain
+        cd ${{ github.workspace }}/toolchain
+
+        echo "Fetching latest ZyCromerZ Clang release..."
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | grep "browser_download_url" | grep "\.tar\.gz" | head -n 1 | cut -d '"' -f 4)
+
+        if [ -z "$DOWNLOAD_URL" ]; then
+          echo "Fallback: fetching latest URL via main link pointer..."
+          DOWNLOAD_URL=$(curl -s https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)
+        fi
+
+        echo "Downloading toolchain from: $DOWNLOAD_URL"
+        wget -q --show-progress "$DOWNLOAD_URL" -O clang.tar.gz
+        tar -xf clang.tar.gz
+        rm clang.tar.gz
+
+    - name: Export Toolchain Path & Environment Variables
+      shell: bash
+      run: |
+        echo "${{ github.workspace }}/toolchain/bin" >> $GITHUB_PATH
+        echo "ARCH=arm64" >> $GITHUB_ENV
+        echo "SUBARCH=arm64" >> $GITHUB_ENV
+        echo "CC=clang" >> $GITHUB_ENV
+        echo "CONFIG_CROSS_COMPILE=aarch64-linux-android-" >> $GITHUB_ENV
+        echo "CROSS_COMPILE=aarch64-linux-android-" >> $GITHUB_ENV
+        echo "CROSS_COMPILE_ARM32=arm-linux-androideabi-" >> $GITHUB_ENV
+        echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV

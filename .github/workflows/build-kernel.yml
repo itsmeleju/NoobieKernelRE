@@ -1,0 +1,100 @@
+name: Build NoobieKernelRE by NoobieThingZ
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu_option:
+        description: 'KernelSU / ReSukiSU Setup Option'
+        required: true
+        default: 'enabled'
+        type: choice
+        options:
+          - 'disabled'
+          - 'enabled'
+      nomount_option:
+        description: 'No-mount Setup Option'
+        required: false
+        default: 'disabled'
+        type: choice
+        options:
+          - 'disabled'
+          - 'enabled'
+      localversion:
+        description: 'Custom Localversion (e.g. -NoobieKernel_v2.0)'
+        required: false
+        default: '-NoobieKernelRE-v1'
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 1
+
+      - name: Setup Build Environment & Toolchain
+        uses: ./.github/actions/setup-env
+
+      - name: Setup ReSukiSU (KernelSU)
+        if: ${{ inputs.ksu_option == 'enabled' }}
+        uses: ./.github/actions/resuki
+
+      - name: Setup NoMount
+        if: ${{ inputs.nomount_option == 'enabled' }}
+        uses: ./.github/actions/no-mount
+
+      - name: Compile Kernel
+        env:
+          LOCALVERSION: ${{ inputs.localversion }}
+        run: |
+          # Define your kernel defconfig file name here
+          DEFCONFIG="Noobie_SU_defconfig"
+
+          echo "==> Generating configuration using $DEFCONFIG <=="
+          make O=out $DEFCONFIG
+
+          echo "==> Starting Kernel Compilation <=="
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            SUBARCH=arm64 \
+            CC=clang \
+            CONFIG_CROSS_COMPILE="aarch64-linux-android-" \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu-
+
+      - name: Package AnyKernel3 Flashable Zip
+        run: |
+          if [ ! -d "AnyKernel" ]; then
+            echo "Error: AnyKernel directory not found in repository root!"
+            exit 1
+          fi
+
+          # Copy compiled raw Image and DTB files to AnyKernel folder
+          if [ -f "out/arch/arm64/boot/Image" ]; then
+            cp out/arch/arm64/boot/Image AnyKernel/
+          else
+            echo "Error: Kernel Image missing from build output!"
+            exit 1
+          fi
+
+          # Find and copy generated .dtb files
+          find out/arch/arm64/boot/ -name "*.dtb" -exec cp {} AnyKernel/ \;
+
+          # Create flashable zip
+          cd AnyKernel
+          ZIP_NAME="NoobieKernelRE-$(date +%Y%m%d-%H%M)${INPUT_LOCALVERSION}.zip"
+          zip -r9 "$ZIP_NAME" * -x "*.git*" "README.md" "*placeholder"
+          echo "Generated package: $ZIP_NAME"
+        env:
+          INPUT_LOCALVERSION: ${{ inputs.localversion }}
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoobieKernelRE-Build
+          path: AnyKernel/*.zip

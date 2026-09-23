@@ -1,0 +1,11 @@
+name: 'Setup NoMount'
+description: 'Integrates NoMount driver/patches into kernel source tree'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run NoMount Setup Script
+      shell: bash
+      run: |
+        echo "==> Setting up NoMount <=="
+        # Insert your NoMount driver integration or patch scripts here

@@ -1,0 +1,101 @@
+name: "Setup and Integrate ReSukiSU"
+description: "Pulls ReSukiSU, inspects hooks, verifies versions, and configures defconfig"
+
+inputs:
+  kernel-dir:
+    description: "Path to kernel directory"
+    required: false
+    default: "."
+  defconfig-path:
+    description: "Path to target defconfig relative to kernel-dir (e.g. arch/arm64/configs/a32_github_defconfig)"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Integrate ReSukiSU
+      shell: bash
+      run: |
+        set -e
+        cd "${{ inputs.kernel-dir }}"
+
+        echo "=========================================="
+        echo "   Starting ReSukiSU Integration Pipeline "
+        echo "=========================================="
+
+        # 1. Pull ReSukiSU into kernel source tree
+        echo "[*] Downloading and executing ReSukiSU setup script..."
+        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -
+
+        if [ ! -d "drivers/kernelsu" ]; then
+          echo "[!] Error: drivers/kernelsu directory not found after running setup.sh!"
+          exit 1
+        fi
+
+        # 2. Version & Git Commit Check
+        echo "[*] Checking ReSukiSU version..."
+        pushd drivers/kernelsu > /dev/null
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          RESUKISU_COMMIT=$(git rev-parse --short HEAD)
+          RESUKISU_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "[✓] ReSukiSU Branch: ${RESUKISU_BRANCH}"
+          echo "[✓] ReSukiSU Commit: ${RESUKISU_COMMIT}"
+        else
+          echo "[i] ReSukiSU installed as a static directory."
+        fi
+
+        if [ -f "kernel/ksu.h" ]; then
+          grep -E "KSU_VERSION|VERSION" kernel/ksu.h || true
+        fi
+        popd > /dev/null
+
+        # 3. Manual Hook Verification
+        echo "[*] Validating manual hooks in kernel source..."
+        HOOKS_FOUND=0
+
+        # Check fs/exec.c
+        if [ -f "fs/exec.c" ] && grep -q "ksu" "fs/exec.c"; then
+          echo "[✓] Manual hook found in fs/exec.c"
+          HOOKS_FOUND=$((HOOKS_FOUND + 1))
+        else
+          echo "[!] Warning: No 'ksu' mention detected in fs/exec.c"
+        fi
+
+        # Check fs/open.c
+        if [ -f "fs/open.c" ] && grep -q "ksu" "fs/open.c"; then
+          echo "[✓] Manual hook found in fs/open.c"
+          HOOKS_FOUND=$((HOOKS_FOUND + 1))
+        else
+          echo "[!] Warning: No 'ksu' mention detected in fs/open.c"
+        fi
+
+        # Check fs/read_write.c
+        if [ -f "fs/read_write.c" ] && grep -q "ksu" "fs/read_write.c"; then
+          echo "[✓] Manual hook found in fs/read_write.c"
+          HOOKS_FOUND=$((HOOKS_FOUND + 1))
+        else
+          echo "[!] Warning: No 'ksu' mention detected in fs/read_write.c"
+        fi
+
+        echo "[*] Total manual hook checkpoints matched: ${HOOKS_FOUND}/3"
+
+        # 4. Enable Kconfig & Makefile bindings
+        echo "[*] Verifying drivers/Makefile and drivers/Kconfig bindings..."
+        sed -i 's|^# *obj-$(CONFIG_KSU) *+= *kernelsu/|obj-$(CONFIG_KSU) += kernelsu/|g' drivers/Makefile || true
+        sed -i 's|^# *source "drivers/kernelsu/Kconfig"|source "drivers/kernelsu/Kconfig"|g' drivers/Kconfig || true
+
+        # 5. Inject configuration to target defconfig
+        DEFCONFIG_FILE="${{ inputs.defconfig-path }}"
+        if [ -f "$DEFCONFIG_FILE" ]; then
+          echo "[*] Appending manual hook configurations to $DEFCONFIG_FILE..."
+          sed -i '/CONFIG_KSU/d' "$DEFCONFIG_FILE"
+          printf "\n# ReSukiSU Manual Hook Configs\nCONFIG_KSU=y\nCONFIG_KSU_MANUAL_HOOK=y\n" >> "$DEFCONFIG_FILE"
+          echo "[✓] Defconfig updated successfully."
+        else
+          echo "[!] Target defconfig not found at: $DEFCONFIG_FILE"
+          exit 1
+        fi
+
+        echo "=========================================="
+        echo "   ReSukiSU Setup Completed Successfully  "
+        echo "=========================================="
