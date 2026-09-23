@@ -53,7 +53,7 @@ jobs:
         env:
           LOCALVERSION: ${{ inputs.localversion }}
         run: |
-          DEFCONFIG="Noobie_SU_defconfig" # Replace with your defconfig filename
+          DEFCONFIG="Noobie_SU_defconfig"
 
           echo "==> Generating configuration using $DEFCONFIG <=="
           make O=out $DEFCONFIG
@@ -63,6 +63,7 @@ jobs:
             ARCH=arm64 \
             SUBARCH=arm64 \
             CC=clang \
+            KCFLAGS="-Wno-macro-redefined -Wno-error" \
             LLVM=1 \
             LLVM_IAS=1 \
             LD=ld.lld \
@@ -76,6 +77,7 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
             CLANG_TRIPLE=aarch64-linux-gnu-
 
+            
       - name: Package AnyKernel3 Flashable Zip
         run: |
           if [ ! -d "AnyKernel" ]; then
