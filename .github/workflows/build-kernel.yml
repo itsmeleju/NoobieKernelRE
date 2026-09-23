@@ -63,7 +63,7 @@ jobs:
             ARCH=arm64 \
             SUBARCH=arm64 \
             CC=clang \
-            KCFLAGS="-Wno-macro-redefined -Wno-error" \
+            KCFLAGS="-Wno-macro-redefined -Wno-error -Wno-unused-function -Wno-unused-variable -Wno-visibility -Wno-declaration-after-statement" \
             LLVM=1 \
             LLVM_IAS=1 \
             LD=ld.lld \
