@@ -9,9 +9,9 @@ runs:
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          bison flex bc build-essential libssl-dev libncurses5-dev \
+          bison flex bc build-essential libssl-dev libncurses-dev \
           libncursesw5-dev libglib2.0-dev libpixman-1-dev python3 \
-          python-is-python3 liblz4-tool libtinfo5 u-boot-tools \
+          python-is-python3 liblz4-tool libtinfo6 u-boot-tools \
           zip unzip ccache git wget curl ca-certificates
 
     - name: Cache Toolchain
