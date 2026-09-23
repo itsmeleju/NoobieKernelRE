@@ -51,8 +51,7 @@ jobs:
         env:
           LOCALVERSION: ${{ inputs.localversion }}
         run: |
-          # Define your kernel defconfig file name here
-          DEFCONFIG="Noobie_SU_defconfig"
+          DEFCONFIG="your_defconfig" # Replace with your defconfig filename
 
           echo "==> Generating configuration using $DEFCONFIG <=="
           make O=out $DEFCONFIG
@@ -62,6 +61,14 @@ jobs:
             ARCH=arm64 \
             SUBARCH=arm64 \
             CC=clang \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
             CONFIG_CROSS_COMPILE="aarch64-linux-android-" \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
