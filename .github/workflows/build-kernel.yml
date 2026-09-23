@@ -53,7 +53,7 @@ jobs:
         env:
           LOCALVERSION: ${{ inputs.localversion }}
         run: |
-          DEFCONFIG="your_defconfig" # Replace with your defconfig filename
+          DEFCONFIG="Noobie_SU_defconfig" # Replace with your defconfig filename
 
           echo "==> Generating configuration using $DEFCONFIG <=="
           make O=out $DEFCONFIG
