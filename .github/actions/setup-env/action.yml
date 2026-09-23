@@ -44,11 +44,26 @@ runs:
     - name: Export Toolchain Path & Environment Variables
       shell: bash
       run: |
+        # Add clang bin directory to system PATH
         echo "${{ github.workspace }}/toolchain/bin" >> $GITHUB_PATH
+        
+        # Core Architecture & Compilers
         echo "ARCH=arm64" >> $GITHUB_ENV
         echo "SUBARCH=arm64" >> $GITHUB_ENV
         echo "CC=clang" >> $GITHUB_ENV
+        
+        # Cross Compilation Triples & Prefix
         echo "CONFIG_CROSS_COMPILE=aarch64-linux-android-" >> $GITHUB_ENV
         echo "CROSS_COMPILE=aarch64-linux-android-" >> $GITHUB_ENV
         echo "CROSS_COMPILE_ARM32=arm-linux-androideabi-" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
+        
+        # LLVM Toolchain Utilities (Fixes missing ld, ar, nm, objcopy errors)
+        echo "LLVM=1" >> $GITHUB_ENV
+        echo "LLVM_IAS=1" >> $GITHUB_ENV
+        echo "LD=ld.lld" >> $GITHUB_ENV
+        echo "AR=llvm-ar" >> $GITHUB_ENV
+        echo "NM=llvm-nm" >> $GITHUB_ENV
+        echo "OBJCOPY=llvm-objcopy" >> $GITHUB_ENV
+        echo "OBJDUMP=llvm-objdump" >> $GITHUB_ENV
+        echo "STRIP=llvm-strip" >> $GITHUB_ENV
