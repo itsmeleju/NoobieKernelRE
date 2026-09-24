@@ -110,7 +110,19 @@ static bool has_intersects_mems_allowed(struct task_struct *tsk,
 	return true;
 }
 #endif /* CONFIG_NUMA */
+/* fails because get_swap_orig_data_nrpages() 
+and get_swap_comp_pool_nrpages() are missing declarations. Additionally, dividing swap_comp_nrpages / swap_orig_nrpages */
+#if defined(CONFIG_SWAP)
+__attribute__((weak)) unsigned long get_swap_orig_data_nrpages(void)
+{
+	return 0;
+}
 
+__attribute__((weak)) unsigned long get_swap_comp_pool_nrpages(void)
+{
+	return 0;
+}
+#endif
 /*
  * The process p may have detached its own ->mm while exiting or through
  * use_mm(), but one or more of its subthreads may still have a valid
