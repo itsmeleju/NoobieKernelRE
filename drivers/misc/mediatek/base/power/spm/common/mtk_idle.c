@@ -150,4 +150,4 @@ void __init mtk_cpuidle_framework_init(void)
 
 	spm_resource_req_init();
 }
-EXPORT_SYMBOL(mtk_cpuidle_framework_init);
+/* EXPORT_SYMBOL(mtk_cpuidle_framework_init); <-- COMMENT OUT OR REMOVE LINE 153 */
