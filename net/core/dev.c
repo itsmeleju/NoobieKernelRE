@@ -5103,9 +5103,9 @@ static void netif_receive_skb_list_internal(struct list_head *head)
 		}
 	}
 #endif
-	struct sk_buff *skb = list_first_entry(head, struct sk_buff, list);
-list_del(&skb->list);
-__netif_receive_skb(skb);
+	struct sk_buff *skb_entry = list_first_entry(head, struct sk_buff, list);
+list_del(&skb_entry->list);
+__netif_receive_skb(skb_entry);
 	rcu_read_unlock();
 }
 
