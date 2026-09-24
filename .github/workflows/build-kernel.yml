@@ -4,106 +4,416 @@ on:
   workflow_dispatch:
     inputs:
       ksu_option:
-        description: 'KernelSU / ReSukiSU Setup Option'
+        description: "KernelSU / ReSukiSU setup"
         required: true
-        default: 'enabled'
+        default: "enabled"
         type: choice
         options:
-          - 'disabled'
-          - 'enabled'
+          - disabled
+          - enabled
+
       nomount_option:
-        description: 'No-mount Setup Option'
-        required: false
-        default: 'disabled'
+        description: "No-mount setup"
+        required: true
+        default: "disabled"
         type: choice
         options:
-          - 'disabled'
-          - 'enabled'
+          - disabled
+          - enabled
+
       localversion:
-        description: 'Custom Localversion (e.g. -NoobieKernel_v2.0)'
+        description: "Custom kernel localversion"
         required: false
-        default: '-ver1.03-GA'
+        default: "-ver1.03-GA"
         type: string
 
 jobs:
   build:
+    name: Build A32 Kernel
     runs-on: ubuntu-latest
 
+    env:
+      ARCH: arm64
+      SUBARCH: arm64
+      OUT_DIR: ${{ github.workspace }}/out
+      BUILD_JOBS: 4
+
     steps:
+      # ---------------------------------------------------------
+      # SOURCE
+      # ---------------------------------------------------------
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
-          submodules: true
           fetch-depth: 1
+          submodules: recursive
 
-      - name: Setup Build Environment & Toolchain
+      # ---------------------------------------------------------
+      # BUILD ENVIRONMENT
+      # ---------------------------------------------------------
+      - name: Setup Build Environment
         uses: ./.github/actions/setup-env
 
-      - name: Setup ReSukiSU (KernelSU)
+      # ---------------------------------------------------------
+      # KERNELSU / RESUKISU
+      # ---------------------------------------------------------
+      - name: Setup ReSukiSU
         if: ${{ inputs.ksu_option == 'enabled' }}
         uses: ./.github/actions/resuki
         with:
-          defconfig-path: 'arch/arm64/configs/Noobie_SU_defconfig'
+          defconfig-path: arch/arm64/configs/Noobie_SU_defconfig
 
+      # ---------------------------------------------------------
+      # NO-MOUNT
+      # ---------------------------------------------------------
       - name: Setup NoMount
         if: ${{ inputs.nomount_option == 'enabled' }}
         uses: ./.github/actions/no-mount
 
-      - name: Compile Kernel
+      # ---------------------------------------------------------
+      # TOOLCHAIN CHECK
+      # ---------------------------------------------------------
+      - name: Verify Build Environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "========================================"
+          echo " Build Environment"
+          echo "========================================"
+
+          echo "ARCH=${ARCH}"
+          echo "SUBARCH=${SUBARCH}"
+          echo "OUT_DIR=${OUT_DIR}"
+          echo "BUILD_JOBS=${BUILD_JOBS}"
+
+          echo
+          echo "Clang:"
+          command -v clang
+          clang --version | head -n 3
+
+          echo
+          echo "LLD:"
+          command -v ld.lld
+          ld.lld --version | head -n 2
+
+          echo
+          echo "LLVM:"
+          command -v llvm-ar
+          command -v llvm-nm
+          command -v llvm-objcopy
+          command -v llvm-objdump
+          command -v llvm-strip
+
+          echo
+          echo "Git:"
+          git --version
+
+          echo
+          echo "Make:"
+          make --version | head -n 1
+
+      # ---------------------------------------------------------
+      # PREPARE OUTPUT DIRECTORY
+      # ---------------------------------------------------------
+      - name: Prepare Build Directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf "${OUT_DIR}"
+          mkdir -p "${OUT_DIR}"
+
+          echo "Output directory:"
+          echo "${OUT_DIR}"
+
+      # ---------------------------------------------------------
+      # CONFIGURE
+      # ---------------------------------------------------------
+      - name: Configure Kernel
+        shell: bash
         env:
           LOCALVERSION: ${{ inputs.localversion }}
         run: |
-          DEFCONFIG="Noobie_SU_defconfig"
+          set -euo pipefail
 
-          echo "==> Generating configuration using $DEFCONFIG <=="
-          make O=out ARCH=arm64 $DEFCONFIG
+          echo "========================================"
+          echo " Kernel Configuration"
+          echo "========================================"
 
-          echo "==> Starting Kernel Compilation <=="
-          make -j$(nproc --all) O=out \
-            ARCH=arm64 \
-            SUBARCH=arm64 \
-            CC=clang \
+          echo "Using defconfig:"
+          echo "Noobie_SU_defconfig"
+
+          make \
+            O="${OUT_DIR}" \
+            ARCH="${ARCH}" \
             LLVM=1 \
             LLVM_IAS=1 \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            CONFIG_CROSS_COMPILE="aarch64-linux-android-" \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            KCFLAGS="-w -Wno-error -Wno-everything -Wno-macro-redefined -Wno-unused-function -Wno-unused-variable -Wno-visibility -Wno-declaration-after-statement -Wno-deprecated-non-prototype -Wno-misleading-indentation -Wno-int-conversion -Wno-parentheses -Wno-pointer-bool-conversion -Wno-single-bit-bitfield-constant-conversion -Wno-fortify-source -Wno-incompatible-pointer-types -Wno-strict-prototypes"
-      - name: Package AnyKernel3 Flashable Zip
+            Noobie_SU_defconfig
+
+          # Apply requested localversion after defconfig.
+          scripts/config \
+            --file "${OUT_DIR}/.config" \
+            --set-str CONFIG_LOCALVERSION "${LOCALVERSION}"
+
+          echo
+          echo "Kernel configuration completed."
+
+          echo
+          echo "Important configuration:"
+          grep -E \
+            'CONFIG_LOCALVERSION=|CONFIG_CC_VERSION_TEXT=|CONFIG_LD_VERSION=' \
+            "${OUT_DIR}/.config" || true
+
+      # ---------------------------------------------------------
+      # BUILD
+      # ---------------------------------------------------------
+      - name: Build Kernel
+        shell: bash
         env:
-          INPUT_LOCALVERSION: ${{ inputs.localversion }}
+          LOCALVERSION: ${{ inputs.localversion }}
         run: |
-          if [ ! -d "AnyKernel" ]; then
-            echo "Error: AnyKernel directory not found in repository root!"
+          set -o pipefail
+
+          BUILD_LOG="${RUNNER_TEMP}/kernel-build.log"
+
+          echo "========================================"
+          echo " Building NoobieKernelRE"
+          echo "========================================"
+
+          echo "Kernel source : ${GITHUB_WORKSPACE}"
+          echo "Output        : ${OUT_DIR}"
+          echo "Compiler      : $(clang --version | head -n 1)"
+          echo "Jobs          : ${BUILD_JOBS}"
+          echo "Localversion  : ${LOCALVERSION}"
+
+          echo
+          echo "Starting kernel build..."
+
+          make \
+            -C "${GITHUB_WORKSPACE}" \
+            O="${OUT_DIR}" \
+            ARCH="${ARCH}" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            -j"${BUILD_JOBS}" \
+            KCFLAGS="-pipe -O2" \
+            CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+            2>&1 | tee "${BUILD_LOG}"
+
+          BUILD_STATUS="${PIPESTATUS[0]}"
+
+          if [ "${BUILD_STATUS}" -ne 0 ]; then
+            echo
+            echo "========================================"
+            echo " KERNEL BUILD FAILED"
+            echo "========================================"
+
+            echo
+            echo "Last 150 lines of build log:"
+            tail -n 150 "${BUILD_LOG}"
+
+            exit "${BUILD_STATUS}"
+          fi
+
+          echo
+          echo "========================================"
+          echo " KERNEL BUILD SUCCESSFUL"
+          echo "========================================"
+
+      # ---------------------------------------------------------
+      # BUILD OUTPUT
+      # ---------------------------------------------------------
+      - name: Verify Kernel Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IMAGE="${OUT_DIR}/arch/arm64/boot/Image"
+
+          echo "========================================"
+          echo " Verifying Kernel"
+          echo "========================================"
+
+          test -f "${IMAGE}"
+          test -s "${IMAGE}"
+
+          IMAGE_SIZE="$(stat -c '%s' "${IMAGE}")"
+
+          if [ "${IMAGE_SIZE}" -lt 1048576 ]; then
+            echo "ERROR: Kernel Image is suspiciously small."
             exit 1
           fi
 
-          # Copy compiled raw Image and DTB files to AnyKernel folder
-          if [ -f "out/arch/arm64/boot/Image" ]; then
-            cp out/arch/arm64/boot/Image AnyKernel/
+          echo "Image:"
+          ls -lh "${IMAGE}"
+
+          echo
+          echo "Size:"
+          echo "${IMAGE_SIZE} bytes"
+
+          echo
+          echo "File type:"
+          file "${IMAGE}"
+
+          echo
+          echo "SHA256:"
+          sha256sum "${IMAGE}" | tee "${RUNNER_TEMP}/Image.sha256"
+
+          echo
+          echo "Kernel release:"
+          if [ -f "${OUT_DIR}/include/config/kernel.release" ]; then
+            cat "${OUT_DIR}/include/config/kernel.release"
           else
-            echo "Error: Kernel Image missing from build output!"
-            exit 1
+            echo "kernel.release not generated"
           fi
 
-          # Find and copy generated .dtb files
-          find out/arch/arm64/boot/ -name "*.dtb" -exec cp {} AnyKernel/ \;
+      # ---------------------------------------------------------
+      # COLLECT OPTIONAL OUTPUTS
+      # ---------------------------------------------------------
+      - name: Collect Kernel Outputs
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          # Create flashable zip
-          cd AnyKernel
-          ZIP_NAME="NoobieKernelRE-$(date +%Y%m%d-%H%M)${INPUT_LOCALVERSION}.zip"
-          zip -r9 "$ZIP_NAME" * -x "*.git*" "README.md" "*placeholder"
-          echo "Generated package: $ZIP_NAME"
+          BOOT_DIR="${OUT_DIR}/arch/arm64/boot"
 
-      - name: Upload Kernel Artifact
+          echo "========================================"
+          echo " Kernel Outputs"
+          echo "========================================"
+
+          find "${BOOT_DIR}" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f %s bytes\n' \
+            | sort
+
+      # ---------------------------------------------------------
+      # ANYKERNEL PACKAGE
+      # ---------------------------------------------------------
+      - name: Package AnyKernel
+        shell: bash
+        env:
+          LOCALVERSION: ${{ inputs.localversion }}
+        run: |
+          set -euo pipefail
+
+          AK_DIR="${GITHUB_WORKSPACE}/AnyKernel"
+          IMAGE="${OUT_DIR}/arch/arm64/boot/Image"
+
+          test -d "${AK_DIR}"
+          test -f "${AK_DIR}/anykernel.sh"
+          test -s "${IMAGE}"
+
+          echo "========================================"
+          echo " Packaging AnyKernel"
+          echo "========================================"
+
+          # Work inside a temporary staging directory.
+          STAGE="${RUNNER_TEMP}/AnyKernel"
+
+          rm -rf "${STAGE}"
+          mkdir -p "${STAGE}"
+
+          cp -a "${AK_DIR}/." "${STAGE}/"
+
+          # Remove previous kernel artifacts.
+          rm -f \
+            "${STAGE}/Image" \
+            "${STAGE}/Image.gz" \
+            "${STAGE}/Image.gz-dtb" \
+            "${STAGE}/dtbo.img"
+
+          cp "${IMAGE}" "${STAGE}/Image"
+
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+          DATE="$(date -u +%Y%m%d-%H%M)"
+
+          ZIP_NAME="NoobieKernelRE-A32-${DATE}-${SHORT_SHA}.zip"
+          ZIP_PATH="${GITHUB_WORKSPACE}/${ZIP_NAME}"
+
+          echo "ZIP: ${ZIP_NAME}"
+
+          (
+            cd "${STAGE}"
+
+            zip -r9 \
+              "${ZIP_PATH}" \
+              . \
+              -x ".git/*" \
+              -x ".github/*" \
+              -x "README.md"
+          )
+
+          test -s "${ZIP_PATH}"
+
+          echo
+          echo "ZIP created:"
+          ls -lh "${ZIP_PATH}"
+
+          echo
+          echo "ZIP contents:"
+          unzip -l "${ZIP_PATH}" | head -n 80
+
+          echo
+          echo "Verifying Image inside ZIP..."
+
+          unzip -p "${ZIP_PATH}" "Image" \
+            | cmp - "${IMAGE}"
+
+          echo "Image integrity check: PASS"
+
+          echo
+          echo "Generating SHA256..."
+
+          SHA_FILE="${GITHUB_WORKSPACE}/SHA256SUMS.txt"
+
+          {
+            echo "# NoobieKernelRE"
+            echo "# Commit: ${GITHUB_SHA}"
+            echo "# Date: ${DATE}"
+            echo
+            sha256sum "${IMAGE}"
+            sha256sum "${ZIP_PATH}"
+          } > "${SHA_FILE}"
+
+          cat "${SHA_FILE}"
+
+          echo "ZIP_NAME=${ZIP_NAME}" >> "${GITHUB_ENV}"
+          echo "ZIP_PATH=${ZIP_PATH}" >> "${GITHUB_ENV}"
+          echo "SHA_FILE=${SHA_FILE}" >> "${GITHUB_ENV}"
+
+      # ---------------------------------------------------------
+      # BUILD ARTIFACT
+      # ---------------------------------------------------------
+      - name: Upload AnyKernel ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: NoobieKernelRE-Build
-          path: AnyKernel/*.zip
+          name: NoobieKernelRE-A32-${{ github.run_number }}
+          path: ${{ env.ZIP_PATH }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      # ---------------------------------------------------------
+      # CHECKSUM
+      # ---------------------------------------------------------
+      - name: Upload SHA256
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoobieKernelRE-SHA256-${{ github.run_number }}
+          path: ${{ env.SHA_FILE }}
+          if-no-files-found: error
+          retention-days: 14
+
+      # ---------------------------------------------------------
+      # BUILD LOG
+      # ---------------------------------------------------------
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoobieKernelRE-BuildLog-${{ github.run_number }}
+          path: ${{ runner.temp }}/kernel-build.log
+          if-no-files-found: ignore
+          retention-days: 7
