@@ -387,20 +387,6 @@ void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 	struct task_struct *task;
 
 #if defined(CONFIG_SWAP)
-__attribute__((weak)) unsigned long get_swap_orig_data_nrpages(void)
-{
-	return 0;
-}
-
-__attribute__((weak)) unsigned long get_swap_comp_pool_nrpages(void)
-{
-	return 0;
-}
-#endif
-
-/* ... inside your oom_dump_tasks / oom log function ... */
-
-#if defined(CONFIG_SWAP)
 	unsigned long swap_orig_nrpages;
 	unsigned long swap_comp_nrpages;
 	unsigned long task_swap;
@@ -427,14 +413,13 @@ __attribute__((weak)) unsigned long get_swap_comp_pool_nrpages(void)
 		}
 
 #if defined(CONFIG_SWAP)
-		/* Safe division guard: Prevents Kernel Panic (Divide-By-Zero) during boot */
+/* Zero guard prevents divide-by-zero Kernel Panic on boot */
 		if (swap_orig_nrpages > 0) {
 			task_swap = get_mm_counter(task->mm, MM_SWAPENTS) *
 					swap_comp_nrpages / swap_orig_nrpages;
 		} else {
 			task_swap = get_mm_counter(task->mm, MM_SWAPENTS);
 		}
-
 		pr_info("[%5d] %5d %5d %8lu  %8lu (%8lu %8lu) %8ld %8lu          %5hd %s\n",
 #else
 		pr_info("[%5d] %5d %5d %8lu %8lu %8ld %8lu          %5hd %s\n",
