@@ -1,69 +1,302 @@
-name: 'Setup Build Environment'
-description: 'Installs build dependencies, caches toolchain, and sets up ZyCromerZ Clang'
+name: Setup Build Environment
+
+description: >
+  Install kernel build dependencies and prepare a validated
+  ZyCromerZ LLVM/Clang toolchain.
 
 runs:
-  using: 'composite'
+  using: composite
+
   steps:
-    - name: Install System Dependencies
+
+    # ---------------------------------------------------------
+    # SYSTEM DEPENDENCIES
+    # ---------------------------------------------------------
+    - name: Install Build Dependencies
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          bison flex bc build-essential libssl-dev libncurses-dev \
-          libncursesw5-dev libglib2.0-dev libpixman-1-dev python3 \
-          python-is-python3 liblz4-tool libtinfo6 u-boot-tools \
-          zip unzip ccache git wget curl ca-certificates
+        set -euo pipefail
 
-    - name: Cache Toolchain
-      id: cache-clang
+        sudo apt-get update
+
+        sudo apt-get install -y --no-install-recommends \
+          bc \
+          bison \
+          build-essential \
+          ca-certificates \
+          ccache \
+          curl \
+          flex \
+          git \
+          libelf-dev \
+          liblz4-tool \
+          libncurses-dev \
+          libssl-dev \
+          libtinfo-dev \
+          python3 \
+          python-is-python3 \
+          unzip \
+          u-boot-tools \
+          wget \
+          zip
+
+    # ---------------------------------------------------------
+    # TOOLCHAIN CACHE
+    # ---------------------------------------------------------
+    - name: Cache ZyCromerZ Toolchain
+      id: clang-cache
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/toolchain
-        key: zycromerz-clang-latest
+        key: zycromerz-clang-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-env/action.yml') }}
 
-    - name: Download & Extract ZyCromerZ Clang
-      if: steps.cache-clang.outputs.cache-hit != 'true'
+    # ---------------------------------------------------------
+    # DOWNLOAD TOOLCHAIN
+    # ---------------------------------------------------------
+    - name: Download ZyCromerZ Clang
+      if: steps.clang-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        mkdir -p ${{ github.workspace }}/toolchain
-        cd ${{ github.workspace }}/toolchain
+        set -euo pipefail
+
+        TOOLCHAIN_DIR="${GITHUB_WORKSPACE}/toolchain"
+        DOWNLOAD_DIR="${RUNNER_TEMP}/clang-download"
+
+        rm -rf "${TOOLCHAIN_DIR}"
+        rm -rf "${DOWNLOAD_DIR}"
+
+        mkdir -p "${TOOLCHAIN_DIR}"
+        mkdir -p "${DOWNLOAD_DIR}"
 
         echo "Fetching latest ZyCromerZ Clang release..."
-        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | grep "browser_download_url" | grep "\.tar\.gz" | head -n 1 | cut -d '"' -f 4)
 
-        if [ -z "$DOWNLOAD_URL" ]; then
-          echo "Fallback: fetching latest URL via main link pointer..."
-          DOWNLOAD_URL=$(curl -s https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)
+        API_URL="https://api.github.com/repos/ZyCromerZ/Clang/releases/latest"
+
+        DOWNLOAD_URL="$(
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            "${API_URL}" \
+          | python3 -c '
+import json
+import sys
+
+data = json.load(sys.stdin)
+
+for asset in data.get("assets", []):
+    name = asset.get("name", "")
+    url = asset.get("browser_download_url", "")
+
+    if name.endswith(".tar.gz") or name.endswith(".tar.xz"):
+        print(url)
+        break
+'
+        )"
+
+        if [ -z "${DOWNLOAD_URL}" ]; then
+          echo "ERROR: Could not find a Clang release archive."
+          exit 1
         fi
 
-        echo "Downloading toolchain from: $DOWNLOAD_URL"
-        wget -q --show-progress "$DOWNLOAD_URL" -O clang.tar.gz
-        tar -xf clang.tar.gz
-        rm clang.tar.gz
+        echo "Download URL:"
+        echo "${DOWNLOAD_URL}"
 
-    - name: Export Toolchain Path & Environment Variables
+        ARCHIVE="${DOWNLOAD_DIR}/clang.tar"
+
+        curl \
+          --fail \
+          --location \
+          --retry 5 \
+          --retry-delay 3 \
+          --connect-timeout 20 \
+          --output "${ARCHIVE}" \
+          "${DOWNLOAD_URL}"
+
+        test -s "${ARCHIVE}"
+
+        echo
+        echo "Archive:"
+        ls -lh "${ARCHIVE}"
+
+        echo
+        echo "Extracting..."
+
+        tar -xf "${ARCHIVE}" -C "${TOOLCHAIN_DIR}"
+
+        rm -f "${ARCHIVE}"
+
+        echo
+        echo "Toolchain files:"
+        find "${TOOLCHAIN_DIR}" \
+          -maxdepth 4 \
+          -type f \
+          -name clang \
+          -print
+
+    # ---------------------------------------------------------
+    # DISCOVER TOOLCHAIN
+    # ---------------------------------------------------------
+    - name: Configure LLVM Toolchain
       shell: bash
       run: |
-        # Add clang bin directory to system PATH
-        echo "${{ github.workspace }}/toolchain/bin" >> $GITHUB_PATH
-        
-        # Core Architecture & Compilers
-        echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "SUBARCH=arm64" >> $GITHUB_ENV
-        echo "CC=clang" >> $GITHUB_ENV
-        
-        # Cross Compilation Triples & Prefix
-        echo "CONFIG_CROSS_COMPILE=aarch64-linux-android-" >> $GITHUB_ENV
-        echo "CROSS_COMPILE=aarch64-linux-android-" >> $GITHUB_ENV
-        echo "CROSS_COMPILE_ARM32=arm-linux-androideabi-" >> $GITHUB_ENV
-        echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-        
-        # LLVM Toolchain Utilities (Fixes missing ld, ar, nm, objcopy errors)
-        echo "LLVM=1" >> $GITHUB_ENV
-        echo "LLVM_IAS=1" >> $GITHUB_ENV
-        echo "LD=ld.lld" >> $GITHUB_ENV
-        echo "AR=llvm-ar" >> $GITHUB_ENV
-        echo "NM=llvm-nm" >> $GITHUB_ENV
-        echo "OBJCOPY=llvm-objcopy" >> $GITHUB_ENV
-        echo "OBJDUMP=llvm-objdump" >> $GITHUB_ENV
-        echo "STRIP=llvm-strip" >> $GITHUB_ENV
+        set -euo pipefail
+
+        TOOLCHAIN_DIR="${GITHUB_WORKSPACE}/toolchain"
+
+        CLANG_BIN="$(
+          find "${TOOLCHAIN_DIR}" \
+            -type f \
+            -path '*/bin/clang' \
+            -print \
+            | head -n 1
+        )"
+
+        if [ -z "${CLANG_BIN}" ]; then
+          echo "ERROR: clang executable was not found."
+          echo
+          find "${TOOLCHAIN_DIR}" -maxdepth 4 -type f | head -n 100
+          exit 1
+        fi
+
+        TOOLCHAIN_BIN="$(dirname "${CLANG_BIN}")"
+
+        echo "Toolchain bin:"
+        echo "${TOOLCHAIN_BIN}"
+
+        # Make LLVM tools available to following steps.
+        echo "${TOOLCHAIN_BIN}" >> "${GITHUB_PATH}"
+
+        # Persistent environment.
+        {
+          echo "ARCH=arm64"
+          echo "SUBARCH=arm64"
+
+          echo "LLVM=1"
+          echo "LLVM_IAS=1"
+
+          echo "CC=clang"
+          echo "LD=ld.lld"
+          echo "AR=llvm-ar"
+          echo "NM=llvm-nm"
+          echo "OBJCOPY=llvm-objcopy"
+          echo "OBJDUMP=llvm-objdump"
+          echo "STRIP=llvm-strip"
+          echo "READELF=llvm-readelf"
+
+          echo "TOOLCHAIN_BIN=${TOOLCHAIN_BIN}"
+        } >> "${GITHUB_ENV}"
+
+        # -----------------------------------------------------
+        # Validate LLVM installation
+        # -----------------------------------------------------
+
+        required_tools=(
+          clang
+          ld.lld
+          llvm-ar
+          llvm-nm
+          llvm-objcopy
+          llvm-objdump
+          llvm-strip
+          llvm-readelf
+        )
+
+        for tool in "${required_tools[@]}"; do
+          if ! command -v "${tool}" >/dev/null 2>&1; then
+            echo "ERROR: Required LLVM tool missing: ${tool}"
+            exit 1
+          fi
+        done
+
+        echo
+        echo "========================================"
+        echo " LLVM Toolchain"
+        echo "========================================"
+
+        clang --version | head -n 3
+        ld.lld --version | head -n 2
+
+    # ---------------------------------------------------------
+    # CROSS COMPILER DETECTION
+    # ---------------------------------------------------------
+    - name: Detect Cross Compiler
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        AARCH64_PREFIX=""
+
+        for prefix in \
+          aarch64-linux-android- \
+          aarch64-linux-gnu- \
+          aarch64-none-linux-gnu-
+        do
+          if command -v "${prefix}ld" >/dev/null 2>&1 || \
+             command -v "${prefix}gcc" >/dev/null 2>&1; then
+            AARCH64_PREFIX="${prefix}"
+            break
+          fi
+        done
+
+        if [ -n "${AARCH64_PREFIX}" ]; then
+          echo "CROSS_COMPILE=${AARCH64_PREFIX}" >> "${GITHUB_ENV}"
+          echo "Detected AArch64 cross compiler: ${AARCH64_PREFIX}"
+        else
+          echo "No GNU AArch64 prefix detected."
+          echo "Using LLVM integrated toolchain."
+
+          echo "CROSS_COMPILE=" >> "${GITHUB_ENV}"
+        fi
+
+        if command -v arm-linux-androideabi-ld >/dev/null 2>&1; then
+          echo "CROSS_COMPILE_ARM32=arm-linux-androideabi-" >> "${GITHUB_ENV}"
+        elif command -v arm-linux-gnueabi-ld >/dev/null 2>&1; then
+          echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "${GITHUB_ENV}"
+        else
+          echo "CROSS_COMPILE_ARM32=" >> "${GITHUB_ENV}"
+        fi
+
+    # ---------------------------------------------------------
+    # FINAL CHECK
+    # ---------------------------------------------------------
+    - name: Final Toolchain Check
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "========================================"
+        echo " Build Toolchain Ready"
+        echo "========================================"
+
+        echo "clang:"
+        command -v clang
+
+        echo
+        echo "ld.lld:"
+        command -v ld.lld
+
+        echo
+        echo "llvm-ar:"
+        command -v llvm-ar
+
+        echo
+        echo "llvm-nm:"
+        command -v llvm-nm
+
+        echo
+        echo "LLVM:"
+        echo "${LLVM}"
+
+        echo
+        echo "LLVM_IAS:"
+        echo "${LLVM_IAS}"
+
+        echo
+        echo "ARCH:"
+        echo "${ARCH}"
+
+        echo
+        echo "SUBARCH:"
+        echo "${SUBARCH}"
