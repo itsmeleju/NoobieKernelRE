@@ -55,42 +55,6 @@ jobs:
         run: |
           DEFCONFIG="Noobie_SU_defconfig"
 
-          # Comprehensive KCFLAGS suppressing all non-fatal Clang/LLVM errors and warnings
-          export KCFLAGS="\
-            -w \
-            -Wno-error \
-            -Wno-everything \
-            -Wno-deprecated-non-prototype \
-            -Wno-misleading-indentation \
-            -Wno-declaration-after-statement \
-            -Wno-unused-variable \
-            -Wno-unused-function \
-            -Wno-unused-value \
-            -Wno-unused-label \
-            -Wno-unused-parameter \
-            -Wno-unused-result \
-            -Wno-visibility \
-            -Wno-macro-redefined \
-            -Wno-int-conversion \
-            -Wno-parentheses \
-            -Wno-pointer-bool-conversion \
-            -Wno-single-bit-bitfield-constant-conversion \
-            -Wno-fortify-source \
-            -Wno-incompatible-pointer-types \
-            -Wno-strict-prototypes \
-            -Wno-tautological-compare \
-            -Wno-frame-larger-than= \
-            -Wno-enum-conversion \
-            -Wno-sizeof-pointer-memaccess \
-            -Wno-array-bounds \
-            -Wno-format-security \
-            -Wno-type-limits \
-            -Wno-shift-negative-value \
-            -Wno-shift-overflow \
-            -Wno-address-of-packed-member \
-            -Wno-initializer-overrides \
-            -Wno-unknown-warning-option"
-
           echo "==> Generating configuration using $DEFCONFIG <=="
           make O=out ARCH=arm64 $DEFCONFIG
 
@@ -110,8 +74,8 @@ jobs:
             CONFIG_CROSS_COMPILE="aarch64-linux-android-" \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-            CLANG_TRIPLE=aarch64-linux-gnu-
-
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            KCFLAGS="-w -Wno-error -Wno-everything -Wno-macro-redefined -Wno-unused-function -Wno-unused-variable -Wno-visibility -Wno-declaration-after-statement -Wno-deprecated-non-prototype -Wno-misleading-indentation -Wno-int-conversion -Wno-parentheses -Wno-pointer-bool-conversion -Wno-single-bit-bitfield-constant-conversion -Wno-fortify-source -Wno-incompatible-pointer-types -Wno-strict-prototypes"
       - name: Package AnyKernel3 Flashable Zip
         env:
           INPUT_LOCALVERSION: ${{ inputs.localversion }}
