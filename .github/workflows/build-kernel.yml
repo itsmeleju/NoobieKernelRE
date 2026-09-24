@@ -63,8 +63,24 @@ jobs:
             ARCH=arm64 \
             SUBARCH=arm64 \
             CC=clang \
-            KCFLAGS="-Wno-deprecated-non-prototype -Wno-strict-prototypes -Wno-macro-redefined -Wno-error -Wno-unused-function -Wno-int-conversion -Wno-unused-variable -Wno-visibility -Wno-misleading-indentation -Wno-declaration-after-statement" \
             LLVM=1 \
+            export KCFLAGS="\
+            -Wno-error \
+            -Wno-deprecated-non-prototype \
+            -Wno-misleading-indentation \
+            -Wno-declaration-after-statement \
+            -Wno-unused-variable \
+            -Wno-visibility \
+            -Wno-macro-redefined \
+            -Wno-int-conversion \
+            -Wno-unused-function \
+            -Wno-parentheses \
+            -Wno-pointer-bool-conversion \
+            -Wno-single-bit-bitfield-constant-conversion \
+            -Wno-fortify-source \
+            -Wno-incompatible-pointer-types \
+            -Wno-misleading-indentation \
+            -Wno-strict-prototypes"
             LLVM_IAS=1 \
             LD=ld.lld \
             AR=llvm-ar \
