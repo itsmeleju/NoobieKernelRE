@@ -1414,7 +1414,7 @@ static struct sched_entity *hmp_get_heaviest_task(
 	while (num_tasks && se) {
 		if (entity_is_task(se) && se->avg.loadwop_avg > max_ratio &&
 #ifdef CONFIG_PRIO_LIMIT_HMP_BOOST
-				!task_low_priority(&task_of(se)->prio) &&
+				!task_low_priority(task_of(se)->prio) &&
 #endif
 				cpumask_intersects(hmp_target_mask,
 					&task_of(se)->cpus_allowed)) {
