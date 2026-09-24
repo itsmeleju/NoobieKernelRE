@@ -14,7 +14,7 @@ on:
 
       nomount_option:
         description: "No-mount setup"
-        required: true
+        required: false
         default: "disabled"
         type: choice
         options:
@@ -29,7 +29,7 @@ on:
 
 jobs:
   build:
-    name: Build A32 Kernel
+    name: A32 Kernel
     runs-on: ubuntu-latest
 
     env:
