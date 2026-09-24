@@ -54,7 +54,24 @@ jobs:
           LOCALVERSION: ${{ inputs.localversion }}
         run: |
           DEFCONFIG="Noobie_SU_defconfig"
-
+          # Export compiler flags globally prior to building
+           export KCFLAGS="\
+            -Wno-error \
+            -Wno-deprecated-non-prototype \
+            -Wno-misleading-indentation \
+            -Wno-declaration-after-statement \
+            -Wno-unused-variable \
+            -Wno-visibility \
+            -Wno-macro-redefined \
+            -Wno-int-conversion \
+            -Wno-unused-function \
+            -Wno-parentheses \
+            -Wno-pointer-bool-conversion \
+            -Wno-single-bit-bitfield-constant-conversion \
+            -Wno-fortify-source \
+            -Wno-incompatible-pointer-types \
+            -Wno-strict-prototypes"
+          
           echo "==> Generating configuration using $DEFCONFIG <=="
           make O=out $DEFCONFIG
 
