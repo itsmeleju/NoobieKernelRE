@@ -9,13 +9,12 @@ on:
         default: Noobie_SU_defconfig
         type: string
       clang_version:
-        description: LLVM/Clang toolchain version
+        description: ZyCromerZ LLVM/Clang release version
         required: true
-        default: 15.0.7
+        default: 15.0.7-20260801
         type: choice
         options:
-          - 15.0.7
-          - 14.0.6
+          - 15.0.7-20260801
       resukisu_ref:
         description: ReSukiSU branch/tag/commit
         required: true
@@ -55,7 +54,7 @@ env:
   ARCH: arm64
   SUBARCH: arm64
   DEFCONFIG: ${{ inputs.defconfig || 'Noobie_SU_defconfig' }}
-  LLVM_VERSION: ${{ inputs.clang_version || '15.0.7' }}
+  LLVM_VERSION: ${{ inputs.clang_version || '15.0.7-20260801' }}
   CROSS_COMPILE: aarch64-linux-gnu-
   CROSS_COMPILE_COMPAT: arm-linux-gnueabi-
   CROSS_COMPILE_ARM32: arm-linux-gnueabi-
@@ -70,7 +69,7 @@ env:
 
 jobs:
   build:
-    name: Build ${{ inputs.defconfig || 'Noobie_SU_defconfig' }} / Clang ${{ inputs.clang_version || '15.0.7' }}
+    name: Build ${{ inputs.defconfig || 'Noobie_SU_defconfig' }} / ZyC Clang ${{ inputs.clang_version || '15.0.7-20260801' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -159,12 +158,20 @@ jobs:
 
           {
             echo "[1/5] LLVM toolchain"
-            clang --version | head -n1
-            ld.lld --version | head -n1
+            clang --version | sed -n '1p'
+            ld.lld --version | sed -n '1p'
             echo
 
             echo "[2/5] Defconfig"
-            make O=out ARCH="$ARCH" LLVM=1 LLVM_IAS=1 "$DEFCONFIG"
+            make O=out \
+              ARCH="$ARCH" \
+              LLVM=1 \
+              LLVM_IAS=1 \
+              CROSS_COMPILE="$CROSS_COMPILE" \
+              CLANG_TRIPLE="$CLANG_TRIPLE" \
+              CROSS_COMPILE_COMPAT="$CROSS_COMPILE_COMPAT" \
+              CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
+              "$DEFCONFIG"
             echo
 
             echo "[3/5] Compatibility/stability configuration"
@@ -182,19 +189,23 @@ jobs:
               echo "::warning::No NoMount Kconfig symbol detected; leaving CONFIG_NOMOUNT unchanged."
             fi
 
-            # Keep module-version policy explicit. For this non-GKI A32 kernel,
-            # disabling MODVERSIONS avoids stale __crc_* relocations when the
-            # vendor tree is built as a built-in kernel. If the source config
-            # explicitly requests it, leave it enabled and report it.
-            if grep -q '^CONFIG_MODVERSIONS=y$' out/.config; then
-              echo "::warning::CONFIG_MODVERSIONS=y; preserving vendor configuration."
-            else
-              scripts/config --file out/.config --disable MODVERSIONS
+            # Avoid the legacy 4.14 __crc_* relocation path with LLD.
+            scripts/config --file out/.config --disable MODVERSIONS
+            if grep -q '^CONFIG_MODULE_REL_CRCS=' out/.config; then
+              scripts/config --file out/.config --disable MODULE_REL_CRCS
             fi
 
             echo
             echo "[4/5] Normalize config"
-            make O=out ARCH="$ARCH" LLVM=1 LLVM_IAS=1 olddefconfig
+            make O=out \
+              ARCH="$ARCH" \
+              LLVM=1 \
+              LLVM_IAS=1 \
+              CROSS_COMPILE="$CROSS_COMPILE" \
+              CLANG_TRIPLE="$CLANG_TRIPLE" \
+              CROSS_COMPILE_COMPAT="$CROSS_COMPILE_COMPAT" \
+              CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
+              olddefconfig
             echo
 
             echo "[5/5] Final config checks"
@@ -210,6 +221,10 @@ jobs:
             echo "CONFIG_MODVERSIONS=$(grep -E '^CONFIG_MODVERSIONS=' out/.config || echo 'not set')"
             echo "CONFIG_KSU_MANUAL_HOOK=$(grep -E '^CONFIG_KSU_MANUAL_HOOK=' out/.config || echo 'not set')"
             echo "CONFIG_NOMOUNT=$(grep -E '^CONFIG_NOMOUNT=' out/.config || echo 'not set')"
+            if grep -q '^CONFIG_MODVERSIONS=y$' out/.config; then
+              echo "::error::CONFIG_MODVERSIONS unexpectedly enabled after olddefconfig."
+              exit 1
+            fi
             echo
             echo "--- Effective build variables ---"
             env | grep -E '^(ARCH|SUBARCH|LLVM|CROSS_COMPILE|KCFLAGS|KBUILD_|LOCALVERSION|TZ)=' | sort
@@ -358,7 +373,7 @@ jobs:
               echo "====================="
               echo "Commit: $(git rev-parse HEAD)"
               echo "Defconfig: $DEFCONFIG"
-              echo "Clang: $(clang --version | head -n1)"
+              echo "Clang: $(clang --version | sed -n '1p')"
               echo "Errors: $errors"
               echo "Warnings: $warnings"
               echo
@@ -396,7 +411,7 @@ jobs:
               echo
               echo "- Errors: $errors"
               echo "- Warnings: $warnings"
-              echo "- Full log: \\"out/ci-logs/build.log\\""
+              echo "- Full log: out/ci-logs/build.log"
               echo
               echo '```text'
               printf '%s\n' "$error_lines"
@@ -508,7 +523,8 @@ jobs:
           overwrite: true
 
       - name: Telegram success report
-        if: ${{ success() }}
+        if: ${{ success() && github.event_name != 'pull_request' }}
+        continue-on-error: true
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -517,24 +533,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          ./scripts/telegram-report.sh success \
-           "${KERNEL_ZIP:-}" \
-           "${KERNEL_VERSION:-unknown}" \
-           "${BUILD_DURATION:-unknown}" \
-           "${IMAGE_SHA256:-unknown}"
+          bash ./scripts/telegram-report.sh success \
+            "${KERNEL_ZIP:-}" \
+            "${KERNEL_VERSION:-unknown}" \
+            "${BUILD_DURATION:-unknown}" \
+            "${IMAGE_SHA256:-unknown}"
 
       - name: Telegram failure report
-        if: ${{ failure() }}
+        if: ${{ failure() && github.event_name != 'pull_request' }}
+        continue-on-error: true
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
         run: |
-         set -euo pipefail
+          set -euo pipefail
 
-         ./scripts/telegram-report.sh failure \
-         "${KERNEL_ZIP:-}" \
-         "${KERNEL_VERSION:-unknown}" \
-         "${BUILD_DURATION:-unknown}" \
-         "${IMAGE_SHA256:-unknown}"
+          bash ./scripts/telegram-report.sh failure \
+            "${KERNEL_ZIP:-}" \
+            "${KERNEL_VERSION:-unknown}" \
+            "${BUILD_DURATION:-unknown}" \
+            "${IMAGE_SHA256:-unknown}"
