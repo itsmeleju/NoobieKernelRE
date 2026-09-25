@@ -56,9 +56,12 @@ env:
   SUBARCH: arm64
   DEFCONFIG: ${{ inputs.defconfig || 'Noobie_SU_defconfig' }}
   LLVM_VERSION: ${{ inputs.clang_version || '15.0.7' }}
-  CROSS_COMPILE: aarch64-linux-gnu-
-  CROSS_COMPILE_COMPAT: arm-linux-gnueabi-
-  CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+#  CROSS_COMPILE: aarch64-linux-gnu-
+#  CROSS_COMPILE_COMPAT: arm-linux-gnueabi-
+#  CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+  CROSS_COMPILE: aarch64-linux-android-
+  CROSS_COMPILE_COMPAT: arm-linux-androideabi-
+  CROSS_COMPILE_ARM32: arm-linux-androideabi-
   LLVM_IAS: 1
   KCFLAGS: -w -pipe -O2
   KBUILD_BUILD_USER: NoobieCI
@@ -224,9 +227,9 @@ jobs:
           export LLVM_IAS=1
           export ARCH=arm64
           export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_COMPAT=arm-linux-androideabi-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           export KCFLAGS='-w -pipe -O2'
           export LOCALVERSION='${{ inputs.localversion || '-NoobieRE' }}'
           export KBUILD_BUILD_USER='NoobieCI'
