@@ -1,12 +1,10 @@
 name: Setup Build Environment
-
 description: Setup dependencies and ZyCromerZ LLVM toolchain
 
 runs:
   using: composite
 
   steps:
-
     - name: Install Build Dependencies
       shell: bash
       run: |
@@ -37,36 +35,32 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/toolchain
-        key: zycromerz-clang-${{ runner.os }}-${{ runner.arch }}-latest
+        key: zycromerz-clang-15-v1
 
     - name: Download ZyCromerZ Clang 15
-      if: steps.clang-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         set -e
 
         TOOLCHAIN="${GITHUB_WORKSPACE}/toolchain"
-        rm -rf "${TOOLCHAIN}"
-        mkdir -p "${TOOLCHAIN}"
 
-        URL="https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20260801-release/Clang-15.0.7-20260801.tar.gz"
-        ARCHIVE="${RUNNER_TEMP}/clang15.tar.gz"
-
-        echo "Downloading ZyCromerZ Clang 15..."
-        curl -sSL --retry 3 --output "${ARCHIVE}" "${URL}"
-
-        echo "Extracting toolchain..."
-        tar -xf "${ARCHIVE}" -C "${TOOLCHAIN}"
-        rm -f "${ARCHIVE}"
-
-        # Verify clang executable exists
+        # Force download if binary doesn't exist (handles empty cache hits)
         if [ ! -f "${TOOLCHAIN}/bin/clang" ]; then
-          echo "ERROR: clang binary missing at ${TOOLCHAIN}/bin/clang"
-          ls -la "${TOOLCHAIN}"
-          exit 1
-        fi
+          echo "Clang not found in toolchain cache. Downloading ZyCromerZ Clang 15..."
+          rm -rf "${TOOLCHAIN}"
+          mkdir -p "${TOOLCHAIN}"
 
-        echo "ZyCromerZ Clang 15 successfully installed."
+          URL="https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20260801-release/Clang-15.0.7-20260801.tar.gz"
+          ARCHIVE="${RUNNER_TEMP}/clang15.tar.gz"
+
+          curl -sSL --retry 3 --output "${ARCHIVE}" "${URL}"
+
+          echo "Extracting toolchain..."
+          tar -xf "${ARCHIVE}" -C "${TOOLCHAIN}" --strip-components=1 || tar -xf "${ARCHIVE}" -C "${TOOLCHAIN}"
+          rm -f "${ARCHIVE}"
+        else
+          echo "Clang 15 successfully restored from cache."
+        fi
 
     - name: Configure LLVM
       shell: bash
@@ -75,10 +69,11 @@ runs:
 
         TOOLCHAIN="${GITHUB_WORKSPACE}/toolchain"
 
-        CLANG="$(find "${TOOLCHAIN}" -type f -path '*/bin/clang' | head -n 1)"
+        CLANG="$(find "${TOOLCHAIN}" -type f -name 'clang' | head -n 1)"
 
         if [ -z "${CLANG}" ]; then
           echo "ERROR: clang not found in toolchain."
+          ls -la "${TOOLCHAIN}"
           exit 1
         fi
 
@@ -107,7 +102,9 @@ runs:
       run: |
         set -e
 
-        export PATH="${GITHUB_WORKSPACE}/toolchain/bin:${PATH}"
+        CLANG_PATH="$(find "${GITHUB_WORKSPACE}/toolchain" -type f -name 'clang' | head -n 1)"
+        BIN_DIR="$(dirname "${CLANG_PATH}")"
+        export PATH="${BIN_DIR}:${PATH}"
 
         echo "Clang:"
         clang --version | head -n 1
