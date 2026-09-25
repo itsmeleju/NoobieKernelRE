@@ -57,6 +57,17 @@ jobs:
         if: inputs.nomount_option == 'enabled'
         uses: ./.github/actions/no-mount
 
+      - name: Patch Clang Conversion Errors
+        shell: bash
+        run: |
+          set -e
+          if [ -f "drivers/clk/mediatek/clkdbg.c" ]; then
+            echo "Patching clkdbg.c pointer conversion errors..."
+            sed -i '470s/spm_pwr_status/\*spm_pwr_status/' drivers/clk/mediatek/clkdbg.c
+            sed -i '2023s/sp->spm_pwr_status/\&sp->spm_pwr_status/' drivers/clk/mediatek/clkdbg.c
+            echo "Patch applied."
+          fi
+
       - name: Configure
         shell: bash
         run: |
