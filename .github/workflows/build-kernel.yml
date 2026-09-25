@@ -1,4 +1,4 @@
-Name: Build NoobieKernelRE by NoobieThingZ
+name: Build NoobieKernelRE by NoobieThingZ
 
 on:
   workflow_dispatch:
