@@ -4,27 +4,27 @@ on:
   workflow_dispatch:
     inputs:
       ksu_option:
-        description: "KernelSU / ReSukiSU setup"
+        description: KernelSU / ReSukiSU setup
         required: true
-        default: "enabled"
+        default: enabled
         type: choice
         options:
           - disabled
           - enabled
 
       nomount_option:
-        description: "No-mount setup"
+        description: No-mount setup
         required: false
-        default: "disabled"
+        default: disabled
         type: choice
         options:
           - disabled
           - enabled
 
       localversion:
-        description: "Kernel localversion"
+        description: Kernel localversion
         required: false
-        default: "-ver1.03-GA"
+        default: -ver1.03-GA
         type: string
 
 jobs:
@@ -74,7 +74,6 @@ jobs:
             LLVM_IAS=1 \
             Noobie_SU_defconfig
 
-          # Update localversion cleanly
           scripts/config \
             --file "${OUT_DIR}/.config" \
             --set-str CONFIG_LOCALVERSION "${{ inputs.localversion }}"
@@ -93,24 +92,37 @@ jobs:
           set -o pipefail
 
           export PATH="${TOOLCHAIN_BIN}:${PATH}"
-          
-          LOG="${RUNNER_TEMP}/kernel-build.log"
-          touch "${LOG}"
 
-          JOBS=$(nproc --all)
+          LOG="${RUNNER_TEMP}/kernel-build.log"
+
+          JOBS="$(nproc)"
+
+          echo "Building with ${JOBS} jobs..."
+          echo "Clang: $(clang --version | head -n 1)"
 
           make \
-            -C "${GITHUB_WORKSPACE}" \
             O="${OUT_DIR}" \
             ARCH="${ARCH}" \
             LLVM=1 \
             LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             -j"${JOBS}" \
             KCFLAGS="-pipe -O2" \
             CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
             2>&1 | tee "${LOG}"
+
+      - name: Verify Kernel
+        shell: bash
+        run: |
+          set -e
+
+          IMAGE="${OUT_DIR}/arch/arm64/boot/Image"
+
+          test -s "${IMAGE}"
+
+          file "${IMAGE}"
+          ls -lh "${IMAGE}"
+
+          echo "Kernel Image verified."
 
       - name: Package
         shell: bash
@@ -128,6 +140,7 @@ jobs:
           mkdir -p "${STAGE}"
 
           cp -a "${AK_DIR}/." "${STAGE}/"
+
           rm -f \
             "${STAGE}/Image" \
             "${STAGE}/Image.gz" \
@@ -138,11 +151,13 @@ jobs:
 
           DATE="$(date -u +%Y%m%d-%H%M)"
           SHA="$(git rev-parse --short=8 HEAD)"
+
           ZIP_NAME="NoobieKernelRE-A32-${DATE}-${SHA}.zip"
           ZIP_PATH="${GITHUB_WORKSPACE}/${ZIP_NAME}"
 
           (
             cd "${STAGE}"
+
             zip -r9 "${ZIP_PATH}" . \
               -x ".git/*" \
               -x ".github/*" \
@@ -153,7 +168,9 @@ jobs:
 
           unzip -p "${ZIP_PATH}" Image | cmp - "${IMAGE}"
 
-          sha256sum "${IMAGE}" "${ZIP_PATH}" \
+          sha256sum \
+            "${IMAGE}" \
+            "${ZIP_PATH}" \
             > "${GITHUB_WORKSPACE}/SHA256SUMS.txt"
 
           echo "ZIP_PATH=${ZIP_PATH}" >> "${GITHUB_ENV}"
