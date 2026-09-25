@@ -1,8 +1,4 @@
-# Setup manifest only.
-# The executable composite-action metadata lives in action.yml because GitHub
-# requires a local action metadata file named action.yml/action.yaml.
-llvm_version: "15.0.7"
-llvm_archive: "llvm-15.0.7-x86_64.tar.xz"
-llvm_url: "https://www.kernel.org/pub/tools/llvm/files/llvm-15.0.7-x86_64.tar.xz"
-llvm_sha_url: "https://www.kernel.org/pub/tools/llvm/files/sha256sums.asc"
+llvm_version: "15.0.7-20260801"
+llvm_archive: "Clang-15.0.7-20260801.tar.gz"
+llvm_url: "https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20260801-release/Clang-15.0.7-20260801.tar.gz"
 cache_subdir: ".cache/noobie-kernel-toolchains"
