@@ -107,13 +107,13 @@ runs:
 
     - name: Cache ZyCromerZ LLVM
       id: llvm-cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/noobie-kernel-toolchains/llvm-${{ steps.manifest.outputs.llvm_version }}
         key: ${{ runner.os }}-zyclang-${{ steps.manifest.outputs.llvm_version }}-x86_64
         restore-keys: |
           ${{ runner.os }}-zyclang-${{ steps.manifest.outputs.llvm_version }}-
-
+          
     - name: Download and install ZyCromerZ Clang
       if: steps.llvm-cache.outputs.cache-hit != 'true'
       shell: bash
@@ -146,56 +146,90 @@ runs:
         test -s "$FILE"
 
         echo
-        echo "Archive:"
+        echo "Downloaded archive:"
         ls -lh "$FILE"
 
         echo
-        echo "Checking archive:"
+        echo "Checking gzip archive..."
         gzip -t "$FILE"
 
-        echo
-        echo "Archive contents:"
-        tar -tzf "$FILE" | head -n 20
+        echo "Archive integrity: OK"
 
         echo
-        echo "Extracting..."
+        echo "Reading archive contents..."
+
+        CONTENTS="$TMP/contents.txt"
+        tar -tzf "$FILE" > "$CONTENTS"
+
+        echo "First archive entries:"
+        sed -n '1,30p' "$CONTENTS"
+
+        echo
+        echo "Extracting ZyCromerZ Clang..."
 
         tar -xzf "$FILE" -C "$PREFIX"
 
         echo
-        echo "Locating LLVM binaries..."
+        echo "Searching for Clang..."
 
-        CLANG="$(find "$PREFIX" -type f -name clang -perm -111 | head -n 1)"
-        LLD="$(find "$PREFIX" -type f -name ld.lld -perm -111 | head -n 1)"
+        CLANG="$(find "$PREFIX" -type f -name clang -perm -111 | head -n 1 || true)"
 
-        if [[ -z "$CLANG" || -z "$LLD" ]]; then
-          echo "::error::Clang/ld.lld not found after extraction."
-          echo "Extracted tree:"
-          find "$PREFIX" -maxdepth 3 -type f | head -n 100
+        if [[ -z "$CLANG" ]]; then
+          echo "::error::clang was not found in ZyCromerZ archive."
+
+          echo
+          echo "Directories:"
+          find "$PREFIX" -maxdepth 3 -type d | sed -n '1,100p'
+
+          echo
+          echo "LLVM-related files:"
+          find "$PREFIX" -type f \( \
+            -name clang \
+            -o -name clang++ \
+            -o -name ld.lld \
+            -o -name llvm-ar \
+          \) | sed -n '1,100p'
+
           exit 1
         fi
 
         LLVM_BIN="$(dirname "$CLANG")"
 
+        echo "Found Clang:"
+        echo "$CLANG"
+
         echo
-        echo "LLVM binary directory:"
+        echo "LLVM bin directory:"
         echo "$LLVM_BIN"
 
-        # If the archive has a single top-level directory, flatten it.
         if [[ "$LLVM_BIN" != "$PREFIX/bin" ]]; then
-          echo "Flattening toolchain directory..."
+          echo
+          echo "Normalizing LLVM directory..."
 
-          if [[ -d "$LLVM_BIN" ]]; then
-            mkdir -p "$PREFIX/bin"
+          mkdir -p "$PREFIX/bin"
 
-            for item in "$LLVM_BIN"/* "$LLVM_BIN"/.[!.]* "$LLVM_BIN"/..?*; do
-              [[ -e "$item" || -L "$item" ]] || continue
-              mv "$item" "$PREFIX/bin/"
-            done
-          fi
+          for tool in \
+            clang \
+            clang++ \
+            ld.lld \
+            llvm-ar \
+            llvm-nm \
+            llvm-objcopy \
+            llvm-objdump \
+            llvm-readelf \
+            llvm-strip
+          do
+            SOURCE="$LLVM_BIN/$tool"
+
+            if [[ -e "$SOURCE" ]]; then
+              cp -a "$SOURCE" "$PREFIX/bin/"
+            fi
+          done
         fi
 
-        # Final verification
+        echo
+        echo "Verifying required LLVM tools..."
+
         for tool in \
           clang \
           clang++ \
@@ -208,15 +242,21 @@ runs:
           llvm-strip
         do
           if [[ ! -x "$PREFIX/bin/$tool" ]]; then
-            echo "::error::Missing ZyCromerZ tool: $PREFIX/bin/$tool"
+            echo "::error::Missing tool: $PREFIX/bin/$tool"
             exit 1
           fi
         done
 
         echo
-        echo "ZyCromerZ Clang installed successfully:"
+        echo "=== ZyCromerZ Clang ==="
         "$PREFIX/bin/clang" --version | head -n 2
+
+        echo
         "$PREFIX/bin/ld.lld" --version | head -n 1
+
+        echo
+        echo "Installed at:"
+        echo "$PREFIX"
 
         rm -rf "$TMP"
 
