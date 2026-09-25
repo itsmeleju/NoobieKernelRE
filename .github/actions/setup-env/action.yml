@@ -53,13 +53,22 @@ runs:
         }
 
         LLVM_VERSION="${{ inputs.llvm-version }}"
-
+        MANIFEST_VERSION="$(get_value llvm_version)"
         LLVM_ARCHIVE="$(get_value llvm_archive)"
         LLVM_URL="$(get_value llvm_url)"
-        CACHE_ROOT="$HOME/$(get_value cache_subdir)"
+        CACHE_SUBDIR="$(get_value cache_subdir)"
+        CACHE_ROOT="$HOME/$CACHE_SUBDIR"
 
+        test -n "$LLVM_VERSION"
+        test -n "$MANIFEST_VERSION"
         test -n "$LLVM_ARCHIVE"
         test -n "$LLVM_URL"
+        test -n "$CACHE_SUBDIR"
+
+        if [[ "$LLVM_VERSION" != "$MANIFEST_VERSION" ]]; then
+          echo "::error::Requested LLVM version '$LLVM_VERSION' does not match setup.yml version '$MANIFEST_VERSION'."
+          exit 1
+        fi
 
         echo "llvm_version=$LLVM_VERSION" >> "$GITHUB_OUTPUT"
         echo "llvm_archive=$LLVM_ARCHIVE" >> "$GITHUB_OUTPUT"
@@ -105,15 +114,13 @@ runs:
           binutils-aarch64-linux-gnu \
           binutils-arm-linux-gnueabi
 
-    - name: Cache ZyCromerZ LLVM
+    - name: Restore ZyCromerZ LLVM cache
       id: llvm-cache
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
-        path: ~/.cache/noobie-kernel-toolchains/llvm-${{ steps.manifest.outputs.llvm_version }}
-        key: ${{ runner.os }}-zyclang-${{ steps.manifest.outputs.llvm_version }}-x86_64
-        restore-keys: |
-          ${{ runner.os }}-zyclang-${{ steps.manifest.outputs.llvm_version }}-
-          
+        path: ${{ steps.manifest.outputs.cache_root }}/llvm-${{ steps.manifest.outputs.llvm_version }}
+        key: ${{ runner.os }}-zyclang-${{ steps.manifest.outputs.llvm_version }}-x86_64-v2
+
     - name: Download and install ZyCromerZ Clang
       if: steps.llvm-cache.outputs.cache-hit != 'true'
       shell: bash
@@ -135,12 +142,16 @@ runs:
         echo "Downloading ZyCromerZ Clang:"
         echo "$URL"
 
-        curl -fL \
+        curl \
+          --fail \
+          --location \
+          --silent \
+          --show-error \
           --retry 5 \
           --retry-all-errors \
           --connect-timeout 30 \
           --max-time 1800 \
-          -o "$FILE" \
+          --output "$FILE" \
           "$URL"
 
         test -s "$FILE"
@@ -152,115 +163,100 @@ runs:
         echo
         echo "Checking gzip archive..."
         gzip -t "$FILE"
-
         echo "Archive integrity: OK"
+
+        CONTENTS="$TMP/contents.txt"
 
         echo
         echo "Reading archive contents..."
-
-        CONTENTS="$TMP/contents.txt"
         tar -tzf "$FILE" > "$CONTENTS"
-
-        echo "First archive entries:"
         sed -n '1,30p' "$CONTENTS"
 
         echo
         echo "Extracting ZyCromerZ Clang..."
-
         tar -xzf "$FILE" -C "$PREFIX"
 
         echo
-        echo "Searching for Clang..."
+        echo "Locating LLVM bin directory..."
 
-        CLANG="$(find "$PREFIX" -type f -name clang -perm -111 | head -n 1 || true)"
+        CLANG="$(
+          find -L "$PREFIX" \
+            -type f \
+            -path '*/bin/clang' \
+            -perm -111 \
+            -print -quit
+        )"
 
         if [[ -z "$CLANG" ]]; then
-          echo "::error::clang was not found in ZyCromerZ archive."
-
+          echo "::error::No executable */bin/clang was found after extraction."
           echo
-          echo "Directories:"
-          find "$PREFIX" -maxdepth 3 -type d | sed -n '1,100p'
-
+          echo "Extracted directories:"
+          find "$PREFIX" -maxdepth 2 -type d -print | sed -n '1,100p'
           echo
-          echo "LLVM-related files:"
-          find "$PREFIX" -type f \( \
-            -name clang \
-            -o -name clang++ \
-            -o -name ld.lld \
-            -o -name llvm-ar \
-          \) | sed -n '1,100p'
-
+          echo "Clang candidates:"
+          find -L "$PREFIX" -type f -name clang -print | sed -n '1,100p'
           exit 1
         fi
 
-        LLVM_BIN="$(dirname "$CLANG")"
+        LLVM_BIN_SOURCE="$(dirname "$CLANG")"
 
         echo "Found Clang:"
         echo "$CLANG"
-
         echo
         echo "LLVM bin directory:"
-        echo "$LLVM_BIN"
+        echo "$LLVM_BIN_SOURCE"
 
-        if [[ "$LLVM_BIN" != "$PREFIX/bin" ]]; then
+        if [[ "$LLVM_BIN_SOURCE" != "$PREFIX/bin" ]]; then
           echo
-          echo "Normalizing LLVM directory..."
-
+          echo "Normalizing LLVM bin directory..."
+          rm -rf "$PREFIX/bin"
           mkdir -p "$PREFIX/bin"
-
-          for tool in \
-            clang \
-            clang++ \
-            ld.lld \
-            llvm-ar \
-            llvm-nm \
-            llvm-objcopy \
-            llvm-objdump \
-            llvm-readelf \
-            llvm-strip
-          do
-            SOURCE="$LLVM_BIN/$tool"
-
-            if [[ -e "$SOURCE" ]]; then
-              cp -a "$SOURCE" "$PREFIX/bin/"
-            fi
-          done
+          cp -a "$LLVM_BIN_SOURCE/." "$PREFIX/bin/"
         fi
 
         echo
         echo "Verifying required LLVM tools..."
 
-        for tool in \
-          clang \
-          clang++ \
-          ld.lld \
-          llvm-ar \
-          llvm-nm \
-          llvm-objcopy \
-          llvm-objdump \
-          llvm-readelf \
+        required_llvm=(
+          clang
+          clang++
+          ld.lld
+          llvm-ar
+          llvm-nm
+          llvm-objcopy
+          llvm-objdump
+          llvm-readelf
           llvm-strip
-        do
-          if [[ ! -x "$PREFIX/bin/$tool" ]]; then
-            echo "::error::Missing tool: $PREFIX/bin/$tool"
+        )
+
+        for tool in "${required_llvm[@]}"; do
+          test -x "$PREFIX/bin/$tool" || {
+            echo "::error::Missing LLVM tool: $PREFIX/bin/$tool"
             exit 1
-          fi
+          }
         done
 
         echo
         echo "=== ZyCromerZ Clang ==="
-        "$PREFIX/bin/clang" --version | head -n 2
-
+        "$PREFIX/bin/clang" --version | sed -n '1,3p'
         echo
-        "$PREFIX/bin/ld.lld" --version | head -n 1
-
+        echo "=== ZyCromerZ LLD ==="
+        "$PREFIX/bin/ld.lld" --version | sed -n '1,2p'
         echo
         echo "Installed at:"
         echo "$PREFIX"
 
         rm -rf "$TMP"
 
-    - name: Put ZyCromerZ LLVM first in PATH
+    - name: Save ZyCromerZ LLVM cache
+      if: steps.llvm-cache.outputs.cache-hit != 'true'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.manifest.outputs.cache_root }}/llvm-${{ steps.manifest.outputs.llvm_version }}
+        key: ${{ runner.os }}-zyclang-${{ steps.manifest.outputs.llvm_version }}-x86_64-v2
+
+    - name: Activate ZyCromerZ LLVM
       id: toolchain
       shell: bash
       run: |
@@ -280,16 +276,39 @@ runs:
 
         echo "$LLVM_PATH" >> "$GITHUB_PATH"
 
-        echo "LLVM_PATH=$LLVM_PATH" >> "$GITHUB_ENV"
+        {
+          echo "LLVM_PATH=$LLVM_PATH"
+          echo "LLVM_BIN=$LLVM_PATH"
+          echo "LLVM=1"
+          echo "LLVM_IAS=1"
+        } >> "$GITHUB_ENV"
 
-        echo "LLVM_BIN=$LLVM_PATH" >> "$GITHUB_ENV"
-
-        echo "LLVM=$LLVM_PATH/" >> "$GITHUB_ENV"
-
-        CLANG_VERSION="$("$LLVM_PATH/clang" --version | head -n1)"
+        CLANG_PATH="$(readlink -f "$LLVM_PATH/clang")"
+        LLD_PATH="$(readlink -f "$LLVM_PATH/ld.lld")"
+        CLANG_VERSION="$("$LLVM_PATH/clang" --version | sed -n '1p')"
 
         echo "llvm_path=$LLVM_PATH" >> "$GITHUB_OUTPUT"
         echo "clang_version=$CLANG_VERSION" >> "$GITHUB_OUTPUT"
+
+        case "$CLANG_PATH" in
+          "$LLVM_PATH"/*) ;;
+          *)
+            echo "::error::clang resolves outside the ZyCromerZ toolchain:"
+            echo "$CLANG_PATH"
+            exit 1
+            ;;
+        esac
+
+        case "$LLD_PATH" in
+          "$LLVM_PATH"/*) ;;
+          *)
+            echo "::error::ld.lld resolves outside the ZyCromerZ toolchain:"
+            echo "$LLD_PATH"
+            exit 1
+            ;;
+        esac
+
+        hash -r
 
         echo "========================================"
         echo "ZyCromerZ LLVM toolchain"
@@ -298,23 +317,23 @@ runs:
         echo "$LLVM_PATH"
         echo
         echo "Clang:"
-        "$LLVM_PATH/clang" --version | head -n3
+        "$LLVM_PATH/clang" --version | sed -n '1,3p'
         echo
         echo "LLD:"
-        "$LLVM_PATH/ld.lld" --version | head -n2
+        "$LLVM_PATH/ld.lld" --version | sed -n '1,2p'
         echo
         echo "LLVM AR:"
-        "$LLVM_PATH/llvm-ar" --version | head -n2
+        "$LLVM_PATH/llvm-ar" --version | sed -n '1,2p'
         echo
         echo "LLVM Objcopy:"
-        "$LLVM_PATH/llvm-objcopy" --version | head -n2
+        "$LLVM_PATH/llvm-objcopy" --version | sed -n '1,2p'
 
     - name: Verify required tools
       shell: bash
       run: |
         set -euo pipefail
 
-        LLVM_PATH="${LLVM_BIN}"
+        LLVM_PATH="$LLVM_BIN"
 
         required_llvm=(
           clang
@@ -323,16 +342,10 @@ runs:
           llvm-ar
           llvm-nm
           llvm-objcopy
+          llvm-objdump
           llvm-readelf
           llvm-strip
         )
-
-        for tool in "${required_llvm[@]}"; do
-          test -x "$LLVM_PATH/$tool" || {
-            echo "::error::Missing LLVM tool: $LLVM_PATH/$tool"
-            exit 1
-          }
-        done
 
         required_host=(
           make
@@ -354,6 +367,13 @@ runs:
           arm-linux-gnueabi-ar
         )
 
+        for tool in "${required_llvm[@]}"; do
+          test -x "$LLVM_PATH/$tool" || {
+            echo "::error::Missing LLVM tool: $LLVM_PATH/$tool"
+            exit 1
+          }
+        done
+
         for tool in "${required_host[@]}"; do
           command -v "$tool" >/dev/null 2>&1 || {
             echo "::error::Required host tool is missing: $tool"
@@ -361,19 +381,34 @@ runs:
           }
         done
 
-        echo
+        case "$(readlink -f "$(command -v clang)")" in
+          "$LLVM_PATH"/*) ;;
+          *)
+            echo "::error::PATH clang is not the ZyCromerZ clang."
+            exit 1
+            ;;
+        esac
+
+        case "$(readlink -f "$(command -v ld.lld)")" in
+          "$LLVM_PATH"/*) ;;
+          *)
+            echo "::error::PATH ld.lld is not the ZyCromerZ ld.lld."
+            exit 1
+            ;;
+        esac
+
         echo "========================================"
         echo "Verified toolchain"
         echo "========================================"
 
         echo "clang:"
         command -v clang
-        clang --version | head -n3
+        clang --version | sed -n '1,3p'
 
         echo
         echo "ld.lld:"
         command -v ld.lld
-        ld.lld --version | head -n2
+        ld.lld --version | sed -n '1,2p'
 
         echo
         echo "llvm-ar:"
