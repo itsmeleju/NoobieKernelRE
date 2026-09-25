@@ -94,27 +94,25 @@ jobs:
           export PATH="${TOOLCHAIN_BIN}:${PATH}"
 
           LOG="${RUNNER_TEMP}/kernel-build.log"
+          touch "${LOG}"
 
-          JOBS="$(nproc)"
+          JOBS="$(nproc --all)"
 
           echo "Building with ${JOBS} jobs..."
           echo "Clang: $(clang --version | head -n 1)"
 
           make \
-           O="${OUT_DIR}" \
-           ARCH=arm64 \
-           CC=clang \
-           LD=ld.lld \
-           AR=llvm-ar \
-           NM=llvm-nm \
-           OBJCOPY=llvm-objcopy \
-           OBJDUMP=llvm-objdump \
-           STRIP=llvm-strip \
-           LLVM=1 \
-           LLVM_IAS=1 \
-           KCFLAGS="-pipe -O2" \
-           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-           Noobie_SU_defconfig
+            -C "${GITHUB_WORKSPACE}" \
+            O="${OUT_DIR}" \
+            ARCH="${ARCH}" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            -j"${JOBS}" \
+            KCFLAGS="-pipe -O2" \
+            CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+            2>&1 | tee "${LOG}"
 
       - name: Verify Kernel
         shell: bash
