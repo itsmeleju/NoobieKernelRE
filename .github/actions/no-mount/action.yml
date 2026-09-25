@@ -1,11 +1,38 @@
-name: 'Setup NoMount'
-description: 'Integrates NoMount driver/patches into kernel source tree'
-
+name: Integrate NoMount
+description: Update and integrate NoMount into the kernel VFS tree.
+inputs:
+  ref:
+    description: NoMount branch, tag, or commit. v2.0.0 is the reproducible stable default.
+    required: false
+    default: v2.0.0
+  enable:
+    description: Enable CONFIG_NOMOUNT when available.
+    required: false
+    default: true
 runs:
-  using: 'composite'
+  using: composite
   steps:
-    - name: Run NoMount Setup Script
+    - name: Integrate NoMount
       shell: bash
       run: |
-        echo "==> Setting up NoMount <=="
-        # Insert your NoMount driver integration or patch scripts here
+        set -euo pipefail
+        test -d fs || { echo "::error::Kernel tree root expected; fs/ not found."; exit 1; }
+
+        curl -LSfsS --retry 5 --retry-all-errors \
+          "https://raw.githubusercontent.com/maxsteeel/nomount/dev/kernel/setup.sh" \
+          -o "$RUNNER_TEMP/nomount-setup.sh"
+        chmod +x "$RUNNER_TEMP/nomount-setup.sh"
+
+        echo "[NoMount] Integrating ref: ${{ inputs.ref }}"
+        bash "$RUNNER_TEMP/nomount-setup.sh" "${{ inputs.ref }}"
+
+        test -L fs/nomount || { echo "::error::NoMount integration did not create fs/nomount symlink"; exit 1; }
+        test -f fs/nomount/Kconfig || { echo "::error::NoMount Kconfig not found after integration"; exit 1; }
+
+        if [[ "${{ inputs.enable }}" == 'true' ]]; then
+          test -f scripts/config || { echo "::error::scripts/config is missing"; exit 1; }
+          scripts/config --file out/.config --enable NOMOUNT 2>/dev/null || true
+        fi
+
+        echo "[NoMount] Source: $(git -C NoMount rev-parse HEAD)"
+        echo "[NoMount] Integrated successfully."
