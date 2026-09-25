@@ -84,6 +84,25 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Prepare Telegram credentials
+        if: ${{ always() }}
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          set -euo pipefail
+
+          [[ -n "${TELEGRAM_BOT_TOKEN}" ]] &&
+          echo "::add-mask::${TELEGRAM_BOT_TOKEN}"
+  
+          [[ -n "${TELEGRAM_CHAT_ID}" ]] &&
+          echo "::add-mask::${TELEGRAM_CHAT_ID}"
+
+          [[ -n "${TELEGRAM_MESSAGE_THREAD_ID}" ]] &&
+          echo "::add-mask::${TELEGRAM_MESSAGE_THREAD_ID}"
+
       - name: Setup build environment
         id: setup
         uses: ./.github/actions/setup-env
@@ -133,7 +152,7 @@ jobs:
         with:
           ref: ${{ inputs.nomount_ref || 'v2.0.0' }}
           enable: true
-
+          
       - name: Configure kernel
         shell: bash
         run: |
@@ -496,11 +515,12 @@ jobs:
           TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
         run: |
           set -euo pipefail
+
           ./scripts/telegram-report.sh success \
-            "${KERNEL_ZIP:-}" \
-            "${KERNEL_VERSION:-unknown}" \
-            "${BUILD_DURATION:-unknown}" \
-            "${IMAGE_SHA256:-unknown}"
+           "${KERNEL_ZIP:-}" \
+           "${KERNEL_VERSION:-unknown}" \
+           "${BUILD_DURATION:-unknown}" \
+           "${IMAGE_SHA256:-unknown}"
 
       - name: Telegram failure report
         if: ${{ failure() }}
@@ -510,9 +530,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
         run: |
-          set -euo pipefail
-          ./scripts/telegram-report.sh failure \
-            "${KERNEL_ZIP:-}" \
-            "${KERNEL_VERSION:-unknown}" \
-            "${BUILD_DURATION:-unknown}" \
-            "${IMAGE_SHA256:-unknown}"
+         set -euo pipefail
+
+         ./scripts/telegram-report.sh failure \
+         "${KERNEL_ZIP:-}" \
+         "${KERNEL_VERSION:-unknown}" \
+         "${BUILD_DURATION:-unknown}" \
+         "${IMAGE_SHA256:-unknown}"
