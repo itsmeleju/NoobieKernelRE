@@ -93,13 +93,23 @@ jobs:
 
           export PATH="${TOOLCHAIN_BIN}:${PATH}"
 
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC="${TOOLCHAIN_BIN}/clang"
+          export LD="${TOOLCHAIN_BIN}/ld.lld"
+          export OBJCOPY="${TOOLCHAIN_BIN}/llvm-objcopy"
+          export NM="${TOOLCHAIN_BIN}/llvm-nm"
+          export STRIP="${TOOLCHAIN_BIN}/llvm-strip"
+          export OBJDUMP="${TOOLCHAIN_BIN}/llvm-objdump"
+          export READELF="${TOOLCHAIN_BIN}/llvm-readelf"
+
           LOG="${RUNNER_TEMP}/kernel-build.log"
           touch "${LOG}"
 
           JOBS="$(nproc --all)"
 
           echo "Building with ${JOBS} jobs..."
-          echo "Clang: $(clang --version | head -n 1)"
+          echo "Clang: $(${CC} --version | head -n 1)"
 
           make \
             -C "${GITHUB_WORKSPACE}" \
@@ -109,10 +119,12 @@ jobs:
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            -j"${JOBS}" \
-            KCFLAGS="-pipe -O2" \
+            KCFLAGS="-w -pipe -O3" \
             CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+            -j"${JOBS}" \
             2>&1 | tee "${LOG}"
+
+
 
       - name: Verify Kernel
         shell: bash
