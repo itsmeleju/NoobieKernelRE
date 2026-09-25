@@ -68,6 +68,12 @@ jobs:
             echo "Patch applied."
           fi
 
+          if [ -f "drivers/soc/mediatek/mtk-cmdq-helper.c" ]; then
+            echo "Patching mtk-cmdq-helper.c pointer conversion errors..."
+            sed -i '598s/return -ENOMEM;/return ERR_PTR(-ENOMEM);/' drivers/soc/mediatek/mtk-cmdq-helper.c
+            echo "Patch applied to mtk-cmdq-helper.c."
+          fi
+
       - name: Configure
         shell: bash
         run: |
