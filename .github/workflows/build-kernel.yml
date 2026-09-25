@@ -95,6 +95,13 @@ jobs:
             --file "${OUT_DIR}/.config" \
             --set-str CONFIG_LOCALVERSION "${{ inputs.localversion }}"
 
+          # This kernel is packaged as a monolithic Image and does not
+          # require module ABI CRCs. Avoid the arm64/L櫢LD modversion
+          # relocation failure.
+          scripts/config \
+            --file "${OUT_DIR}/.config" \
+            --disable CONFIG_MODVERSIONS
+
           make \
             O="${OUT_DIR}" \
             ARCH="${ARCH}" \
