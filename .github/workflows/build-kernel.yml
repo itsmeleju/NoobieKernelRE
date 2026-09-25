@@ -1,4 +1,4 @@
-name: Build NoobieKernelRE by NoobieThingZ
+Name: Build NoobieKernelRE by NoobieThingZ
 
 on:
   workflow_dispatch:
@@ -36,7 +36,7 @@ jobs:
       ARCH: arm64
       SUBARCH: arm64
       OUT_DIR: ${{ github.workspace }}/out
-      BUILD_JOBS: 4
+      TOOLCHAIN_DIR: ${{ github.workspace }}/toolchain
 
     steps:
       - name: Checkout
@@ -63,6 +63,8 @@ jobs:
         run: |
           set -e
 
+          export PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
+
           rm -rf "${OUT_DIR}"
           mkdir -p "${OUT_DIR}"
 
@@ -73,16 +75,30 @@ jobs:
             LLVM_IAS=1 \
             Noobie_SU_defconfig
 
+          # Update localversion cleanly
           scripts/config \
             --file "${OUT_DIR}/.config" \
             --set-str CONFIG_LOCALVERSION "${{ inputs.localversion }}"
 
+          make \
+            O="${OUT_DIR}" \
+            ARCH="${ARCH}" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            olddefconfig
+
       - name: Build
         shell: bash
         run: |
+          set -e
           set -o pipefail
 
+          export PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
+          
           LOG="${RUNNER_TEMP}/kernel-build.log"
+          touch "${LOG}"
+
+          JOBS=$(nproc --all)
 
           make \
             -C "${GITHUB_WORKSPACE}" \
@@ -90,18 +106,12 @@ jobs:
             ARCH="${ARCH}" \
             LLVM=1 \
             LLVM_IAS=1 \
-            -j"${BUILD_JOBS}" \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            -j"${JOBS}" \
             KCFLAGS="-pipe -O2" \
             CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
             2>&1 | tee "${LOG}"
-
-          status=${PIPESTATUS[0]}
-
-          if [ "${status}" -ne 0 ]; then
-            echo "Kernel build failed."
-            tail -n 100 "${LOG}"
-            exit "${status}"
-          fi
 
       - name: Package
         shell: bash
