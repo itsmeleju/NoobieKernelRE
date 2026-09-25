@@ -1,11 +1,11 @@
 name: Setup Build Environment
-description: Setup kernel build dependencies and ZyCromerZ LLVM 15
+description: Setup dependencies and ZyCromerZ LLVM toolchain
 
 runs:
   using: composite
 
   steps:
-    - name: Install Dependencies
+    - name: Install Build Dependencies
       shell: bash
       run: |
         set -e
@@ -30,24 +30,24 @@ runs:
           curl \
           zip
 
-    - name: Cache Clang
-      id: clang-cache
+    - name: Cache ZyCromerZ Clang
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/toolchain
-        key: zycromerz-clang-15-20260801-v2
+        key: zycromerz-clang-15-20260801-v3
 
-    - name: Install Clang
+    - name: Download ZyCromerZ Clang 15
       shell: bash
       run: |
         set -e
 
         TOOLCHAIN="${GITHUB_WORKSPACE}/toolchain"
         ARCHIVE="${RUNNER_TEMP}/clang15.tar.gz"
+
         URL="https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20260801-release/Clang-15.0.7-20260801.tar.gz"
 
-        if find "${TOOLCHAIN}" -type f -name clang -perm -111 | grep -q .; then
-          echo "Clang cache found."
+        if [ -x "${TOOLCHAIN}/bin/clang" ]; then
+          echo "Clang already exists."
         else
           echo "Clang not found. Downloading..."
 
@@ -64,6 +64,9 @@ runs:
 
           test -s "${ARCHIVE}"
 
+          echo "Checking archive..."
+          tar -tzf "${ARCHIVE}" | head -20
+
           echo "Extracting Clang..."
 
           tar -xzf "${ARCHIVE}" -C "${TOOLCHAIN}"
@@ -71,40 +74,48 @@ runs:
           rm -f "${ARCHIVE}"
         fi
 
-        CLANG="$(find "${TOOLCHAIN}" \
+    - name: Locate Clang
+      shell: bash
+      run: |
+        set -e
+
+        TOOLCHAIN="${GITHUB_WORKSPACE}/toolchain"
+
+        CLANG="$(find -L "${TOOLCHAIN}" \
           -type f \
           -name clang \
-          -perm -111 \
+          -executable \
           -print -quit)"
 
         if [ -z "${CLANG}" ]; then
           echo "::error::Clang executable was not found."
-          echo "Toolchain contents:"
-          find "${TOOLCHAIN}" -maxdepth 3 -type f | head -100
+
+          echo
+          echo "Toolchain directory:"
+          find "${TOOLCHAIN}" -maxdepth 4 -print | head -200
+
+          echo
+          echo "Possible Clang files:"
+          find -L "${TOOLCHAIN}" \
+            \( -name 'clang' -o -name 'clang-*' \) \
+            -print | head -50
+
           exit 1
         fi
 
         BIN_DIR="$(dirname "${CLANG}")"
 
-        echo "Clang found:"
+        echo "Clang:"
         echo "${CLANG}"
 
-        echo "TOOLCHAIN_BIN=${BIN_DIR}" >> "${GITHUB_ENV}"
+        echo
+        echo "LLVM bin:"
+        echo "${BIN_DIR}"
+
         echo "${BIN_DIR}" >> "${GITHUB_PATH}"
 
-    - name: Configure LLVM
-      shell: bash
-      run: |
-        set -e
-
-        test -n "${TOOLCHAIN_BIN}"
-        test -x "${TOOLCHAIN_BIN}/clang"
-
         {
-          echo "ARCH=arm64"
-          echo "SUBARCH=arm64"
-          echo "LLVM=1"
-          echo "LLVM_IAS=1"
+          echo "TOOLCHAIN_BIN=${BIN_DIR}"
           echo "CC=clang"
           echo "LD=ld.lld"
           echo "AR=llvm-ar"
@@ -113,6 +124,8 @@ runs:
           echo "OBJDUMP=llvm-objdump"
           echo "STRIP=llvm-strip"
           echo "READELF=llvm-readelf"
+          echo "LLVM=1"
+          echo "LLVM_IAS=1"
         } >> "${GITHUB_ENV}"
 
     - name: Verify LLVM
@@ -126,19 +139,33 @@ runs:
         echo "LLVM TOOLCHAIN"
         echo "========================================"
 
-        echo "PATH: ${TOOLCHAIN_BIN}"
-
+        echo "Clang:"
         command -v clang
-        command -v ld.lld
-        command -v llvm-ar
-        command -v llvm-nm
-        command -v llvm-objcopy
-        command -v llvm-objdump
-        command -v llvm-strip
+        clang --version | head -n 1
 
         echo
-        clang --version | head -n 1
+        echo "LLD:"
+        command -v ld.lld
         ld.lld --version | head -n 1
+
+        echo
+        echo "LLVM tools:"
+
+        for tool in \
+          llvm-ar \
+          llvm-nm \
+          llvm-objcopy \
+          llvm-objdump \
+          llvm-strip \
+          llvm-readelf
+        do
+          if ! command -v "${tool}" >/dev/null 2>&1; then
+            echo "::error::Missing ${tool}"
+            exit 1
+          fi
+
+          echo "  ${tool}: $(command -v "${tool}")"
+        done
 
         echo
         echo "LLVM toolchain ready."
