@@ -114,7 +114,7 @@ runs:
         restore-keys: |
           ${{ runner.os }}-zyclang-${{ steps.manifest.outputs.llvm_version }}-
 
-    - name: Download ZyCromerZ LLVM
+    - name: Download and install ZyCromerZ Clang
       if: steps.llvm-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
@@ -126,41 +126,97 @@ runs:
         CACHE_ROOT="${{ steps.manifest.outputs.cache_root }}"
 
         PREFIX="$CACHE_ROOT/llvm-$VERSION"
-        TMP="$RUNNER_TEMP/zyclang-$VERSION"
+        TMP="$RUNNER_TEMP/zyc-clang-$VERSION"
+        FILE="$TMP/$ARCHIVE"
 
-        rm -rf "$TMP"
-        rm -rf "$PREFIX"
-
-        mkdir -p "$TMP"
-        mkdir -p "$PREFIX"
+        rm -rf "$TMP" "$PREFIX"
+        mkdir -p "$TMP" "$PREFIX"
 
         echo "Downloading ZyCromerZ Clang:"
         echo "$URL"
 
-        curl \
-          -L \
-          --fail \
+        curl -fL \
           --retry 5 \
           --retry-all-errors \
-          --connect-timeout 20 \
-          -o "$TMP/$ARCHIVE" \
+          --connect-timeout 30 \
+          --max-time 1800 \
+          -o "$FILE" \
           "$URL"
 
-        test -s "$TMP/$ARCHIVE"
+        test -s "$FILE"
 
-        echo "Extracting $ARCHIVE"
+        echo
+        echo "Archive:"
+        ls -lh "$FILE"
 
-        tar -xzf "$TMP/$ARCHIVE" \
-          -C "$PREFIX" \
-          --strip-components=1
+        echo
+        echo "Checking archive:"
+        gzip -t "$FILE"
 
-        test -x "$PREFIX/bin/clang"
-        test -x "$PREFIX/bin/clang++"
-        test -x "$PREFIX/bin/ld.lld"
-        test -x "$PREFIX/bin/llvm-ar"
-        test -x "$PREFIX/bin/llvm-nm"
-        test -x "$PREFIX/bin/llvm-objcopy"
-        test -x "$PREFIX/bin/llvm-readelf"
+        echo
+        echo "Archive contents:"
+        tar -tzf "$FILE" | head -n 20
+
+        echo
+        echo "Extracting..."
+
+        tar -xzf "$FILE" -C "$PREFIX"
+
+        echo
+        echo "Locating LLVM binaries..."
+
+        CLANG="$(find "$PREFIX" -type f -name clang -perm -111 | head -n 1)"
+        LLD="$(find "$PREFIX" -type f -name ld.lld -perm -111 | head -n 1)"
+
+        if [[ -z "$CLANG" || -z "$LLD" ]]; then
+          echo "::error::Clang/ld.lld not found after extraction."
+          echo "Extracted tree:"
+          find "$PREFIX" -maxdepth 3 -type f | head -n 100
+          exit 1
+        fi
+
+        LLVM_BIN="$(dirname "$CLANG")"
+
+        echo
+        echo "LLVM binary directory:"
+        echo "$LLVM_BIN"
+
+        # If the archive has a single top-level directory, flatten it.
+        if [[ "$LLVM_BIN" != "$PREFIX/bin" ]]; then
+          echo "Flattening toolchain directory..."
+
+          if [[ -d "$LLVM_BIN" ]]; then
+            mkdir -p "$PREFIX/bin"
+
+            for item in "$LLVM_BIN"/* "$LLVM_BIN"/.[!.]* "$LLVM_BIN"/..?*; do
+              [[ -e "$item" || -L "$item" ]] || continue
+              mv "$item" "$PREFIX/bin/"
+            done
+          fi
+        fi
+
+        # Final verification
+        for tool in \
+          clang \
+          clang++ \
+          ld.lld \
+          llvm-ar \
+          llvm-nm \
+          llvm-objcopy \
+          llvm-objdump \
+          llvm-readelf \
+          llvm-strip
+        do
+          if [[ ! -x "$PREFIX/bin/$tool" ]]; then
+            echo "::error::Missing ZyCromerZ tool: $PREFIX/bin/$tool"
+            exit 1
+          fi
+        done
+
+        echo
+        echo "ZyCromerZ Clang installed successfully:"
+        "$PREFIX/bin/clang" --version | head -n 2
+        "$PREFIX/bin/ld.lld" --version | head -n 1
 
         rm -rf "$TMP"
 
