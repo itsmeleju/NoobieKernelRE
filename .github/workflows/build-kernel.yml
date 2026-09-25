@@ -59,9 +59,9 @@ env:
 #  CROSS_COMPILE: aarch64-linux-gnu-
 #  CROSS_COMPILE_COMPAT: arm-linux-gnueabi-
 #  CROSS_COMPILE_ARM32: arm-linux-gnueabi-
-  CROSS_COMPILE: aarch64-linux-android-
-  CROSS_COMPILE_COMPAT: arm-linux-androideabi-
-  CROSS_COMPILE_ARM32: arm-linux-androideabi-
+  CROSS_COMPILE:
+  CROSS_COMPILE_COMPAT: 
+  CROSS_COMPILE_ARM32: 
   CLANG_TRIPLE: aarch64-linux-android-
   LLVM_IAS: 1
   KCFLAGS: -w -pipe -O2
@@ -94,7 +94,7 @@ jobs:
           TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
         run: |
           set -euo pipefail
-
+          chmod +x scripts/telegram-report.sh
           [[ -n "${TELEGRAM_BOT_TOKEN}" ]] &&
           echo "::add-mask::${TELEGRAM_BOT_TOKEN}"
   
@@ -247,10 +247,10 @@ jobs:
           export LLVM_IAS=1
           export ARCH=arm64
           export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE=
           export CLANG_TRIPLE=aarch64-linux-android-
-          export CROSS_COMPILE_COMPAT=arm-linux-androideabi-
-          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+          export CROSS_COMPILE_COMPAT=
+          export CROSS_COMPILE_ARM32=
           export KCFLAGS='-w -pipe -O2'
           export LOCALVERSION='${{ inputs.localversion || '-NoobieRE' }}'
           export KBUILD_BUILD_USER='NoobieCI'
