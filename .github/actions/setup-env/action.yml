@@ -1,238 +1,165 @@
-name: Setup Build Environment
-description: Setup dependencies and ZyCromerZ LLVM toolchain
-
+name: Setup kernel build environment
+description: Install host packages, restore/download LLVM/Clang, verify toolchain, and publish build metadata.
+inputs:
+  llvm-version:
+    description: LLVM/Clang version to use. The supplied setup manifest contains the default 15.0.7 package.
+    required: false
+    default: 15.0.7
+  install-packages:
+    description: Install the packages required by this legacy Android kernel build.
+    required: false
+    default: true
+outputs:
+  llvm-path:
+    description: Absolute path to the LLVM bin directory.
+    value: ${{ steps.toolchain.outputs.llvm_path }}
+  clang-version:
+    description: Verified clang version string.
+    value: ${{ steps.toolchain.outputs.clang_version }}
+  host-metadata:
+    description: Host metadata collected during setup.
+    value: ${{ steps.metadata.outputs.metadata }}
 runs:
   using: composite
-
   steps:
-    - name: Install Build Dependencies
+    - name: Read setup manifest
+      id: manifest
       shell: bash
       run: |
-        set -e
+        set -euo pipefail
+        MANIFEST="$GITHUB_ACTION_PATH/setup.yml"
+        test -f "$MANIFEST" || { echo "::error::Missing setup manifest: $MANIFEST"; exit 1; }
 
+        get_value() {
+          local key="$1"
+          awk -F': ' -v k="$key" '$1 == k {gsub(/^"|"$/, "", $2); print $2; exit}' "$MANIFEST"
+        }
+
+        LLVM_VERSION="${{ inputs.llvm-version }}"
+        LLVM_ARCHIVE="$(get_value llvm_archive)"
+        LLVM_URL="$(get_value llvm_url)"
+        LLVM_SHA_URL="$(get_value llvm_sha_url)"
+        CACHE_ROOT="$HOME/$(get_value cache_subdir)"
+
+        if [[ "$LLVM_VERSION" != "15.0.7" ]]; then
+          case "$LLVM_VERSION" in
+            14.0.6)
+              LLVM_ARCHIVE="llvm-14.0.6-x86_64.tar.xz"
+              LLVM_URL="https://www.kernel.org/pub/tools/llvm/files/$LLVM_ARCHIVE"
+              ;;
+            15.0.7)
+              ;;
+            *)
+              echo "::error::Unsupported LLVM version '$LLVM_VERSION'. Supported CI versions are 14.0.6 and 15.0.7."
+              exit 1
+              ;;
+          esac
+        fi
+
+        echo "llvm_version=$LLVM_VERSION" >> "$GITHUB_OUTPUT"
+        echo "llvm_archive=$LLVM_ARCHIVE" >> "$GITHUB_OUTPUT"
+        echo "llvm_url=$LLVM_URL" >> "$GITHUB_OUTPUT"
+        echo "llvm_sha_url=$LLVM_SHA_URL" >> "$GITHUB_OUTPUT"
+        echo "cache_root=$CACHE_ROOT" >> "$GITHUB_OUTPUT"
+
+    - name: Install host packages
+      if: inputs.install-packages == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
         sudo apt-get update
-
         sudo apt-get install -y --no-install-recommends \
-          bc \
-          bison \
-          build-essential \
-          flex \
-          git \
-          libelf-dev \
-          liblz4-tool \
-          libncurses-dev \
-          libssl-dev \
-          python3 \
-          python-is-python3 \
-          unzip \
-          u-boot-tools \
-          wget \
-          curl \
-          zip
+          bc bison build-essential ccache cpio curl file flex git jq \
+          libelf-dev libssl-dev libncurses-dev make openssl python3 \
+          rsync tar unzip wget xz-utils zip zstd \
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi binutils-aarch64-linux-gnu \
+          binutils-arm-linux-gnueabi
 
-    - name: Cache ZyCromerZ Clang
-      uses: actions/cache@v4
+    - name: Cache LLVM/Clang
+      id: llvm-cache
+      uses: actions/cache@v6
       with:
-        path: ${{ github.workspace }}/toolchain
-        key: zycromerz-clang-15-20260801-v3
+        path: ~/.cache/noobie-kernel-toolchains/llvm-${{ steps.manifest.outputs.llvm_version }}
+        key: ${{ runner.os }}-llvm-${{ steps.manifest.outputs.llvm_version }}-x86_64-kernel
+        restore-keys: |
+          ${{ runner.os }}-llvm-${{ steps.manifest.outputs.llvm_version }}-x86_64-
 
-    - name: Download ZyCromerZ Clang 15
+    - name: Download and verify LLVM/Clang
+      if: steps.llvm-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        set -e
+        set -euo pipefail
+        VERSION="${{ steps.manifest.outputs.llvm_version }}"
+        ARCHIVE="${{ steps.manifest.outputs.llvm_archive }}"
+        URL="${{ steps.manifest.outputs.llvm_url }}"
+        SHA_URL="${{ steps.manifest.outputs.llvm_sha_url }}"
+        CACHE_ROOT="${{ steps.manifest.outputs.cache_root }}"
+        PREFIX="$CACHE_ROOT/llvm-$VERSION"
+        TMP="$RUNNER_TEMP/llvm-$VERSION"
 
-        TOOLCHAIN="${GITHUB_WORKSPACE}/toolchain"
-        ARCHIVE="${RUNNER_TEMP}/clang15.tar.gz"
+        rm -rf "$TMP"
+        mkdir -p "$TMP" "$CACHE_ROOT"
+        curl -L --fail --retry 5 --retry-all-errors --connect-timeout 20 -o "$TMP/$ARCHIVE" "$URL"
+        curl -L --fail --retry 5 --retry-all-errors --connect-timeout 20 -o "$TMP/sha256sums.asc" "$SHA_URL"
 
-        URL="https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20260801-release/Clang-15.0.7-20260801.tar.gz"
+        EXPECTED="$(awk -v f="$ARCHIVE" '$0 ~ f"$" {print $1; exit}' "$TMP/sha256sums.asc")"
+        test -n "$EXPECTED" || { echo "::error::No SHA256 entry found for $ARCHIVE"; exit 1; }
+        echo "$EXPECTED  $TMP/$ARCHIVE" | sha256sum -c -
 
-        if [ -x "${TOOLCHAIN}/bin/clang" ]; then
-          echo "Clang already exists in cache."
-          exit 0
-        fi
+        rm -rf "$PREFIX"
+        mkdir -p "$PREFIX"
+        tar -xJf "$TMP/$ARCHIVE" -C "$PREFIX" --strip-components=1
+        test -x "$PREFIX/bin/clang"
+        test -x "$PREFIX/bin/ld.lld"
+        rm -rf "$TMP"
 
-        echo "Clang not found. Downloading ZyCromerZ Clang 15..."
-
-        rm -rf "${TOOLCHAIN}"
-        mkdir -p "${TOOLCHAIN}"
-
-        curl -fL \
-          --retry 5 \
-          --retry-delay 3 \
-          --connect-timeout 30 \
-          --max-time 1800 \
-          -o "${ARCHIVE}" \
-          "${URL}"
-
-        test -s "${ARCHIVE}"
-
-        echo "Download completed:"
-        ls -lh "${ARCHIVE}"
-
-        echo "Checking archive..."
-
-        tar -tzf "${ARCHIVE}" > "${RUNNER_TEMP}/clang-manifest.txt"
-
-        echo "Archive contents:"
-        head -30 "${RUNNER_TEMP}/clang-manifest.txt"
-
-        echo
-        echo "Searching for Clang..."
-
-        if ! grep -E '(^|/)bin/clang$' "${RUNNER_TEMP}/clang-manifest.txt"; then
-          echo "::error::clang was not found inside the downloaded archive."
-
-          echo "Possible clang files:"
-          grep -E '(^|/)clang($|/)' \
-            "${RUNNER_TEMP}/clang-manifest.txt" \
-            | head -50 || true
-
-          exit 1
-        fi
-
-        echo "Extracting Clang..."
-
-        tar -xzf "${ARCHIVE}" -C "${TOOLCHAIN}"
-
-        rm -f "${ARCHIVE}"
-
-        echo "Extraction completed."
-
-        echo "Searching extracted toolchain..."
-
-        CLANG="$(find -L "${TOOLCHAIN}" \
-          -type f \
-          -name clang \
-          -print -quit)"
-
-        if [ -z "${CLANG}" ]; then
-          echo "::error::Clang was found in the archive but not after extraction."
-
-          echo "Extracted files:"
-          find -L "${TOOLCHAIN}" -maxdepth 4 -type f | head -100 || true
-
-          exit 1
-        fi
-
-        echo "Clang found:"
-        echo "${CLANG}"
-        
-    - name: Configure LLVM
+    - name: Put LLVM first in PATH
+      id: toolchain
       shell: bash
       run: |
-        set -e
+        set -euo pipefail
+        LLVM_PATH="${{ steps.manifest.outputs.cache_root }}/llvm-${{ steps.manifest.outputs.llvm_version }}/bin"
+        test -x "$LLVM_PATH/clang" || { echo "::error::clang not found at $LLVM_PATH"; exit 1; }
+        test -x "$LLVM_PATH/ld.lld" || { echo "::error::ld.lld not found at $LLVM_PATH"; exit 1; }
+        echo "$LLVM_PATH" >> "$GITHUB_PATH"
+        echo "LLVM_PATH=$LLVM_PATH" >> "$GITHUB_ENV"
+        echo "LLVM=$LLVM_PATH/" >> "$GITHUB_ENV"
+        CLANG_VERSION="$("$LLVM_PATH/clang" --version | head -n1)"
+        echo "llvm_path=$LLVM_PATH" >> "$GITHUB_OUTPUT"
+        echo "clang_version=$CLANG_VERSION" >> "$GITHUB_OUTPUT"
 
-        TOOLCHAIN="${GITHUB_WORKSPACE}/toolchain"
+        echo "clang:       $CLANG_VERSION"
+        echo "ld.lld:      $("$LLVM_PATH/ld.lld" --version | head -n1)"
+        echo "llvm-ar:     $("$LLVM_PATH/llvm-ar" --version | head -n1)"
+        echo "llvm-objcopy: $("$LLVM_PATH/llvm-objcopy" --version | head -n1)"
 
-        CLANG="$(find -L "${TOOLCHAIN}" \
-          -type f \
-          -name clang \
-          -print -quit)"
-
-        if [ -z "${CLANG}" ]; then
-          echo "::error::Clang executable not found."
-
-          echo "Toolchain tree:"
-          find -L "${TOOLCHAIN}" -maxdepth 4 -print | head -150 || true
-
-          exit 1
-        fi
-
-        BIN_DIR="$(dirname "${CLANG}")"
-
-        echo "========================================"
-        echo "LLVM TOOLCHAIN"
-        echo "========================================"
-
-        echo "Clang: ${CLANG}"
-        echo "Bin:   ${BIN_DIR}"
-
-        echo "${BIN_DIR}" >> "${GITHUB_PATH}"
-
-        {
-          echo "TOOLCHAIN_BIN=${BIN_DIR}"
-          echo "ARCH=arm64"
-          echo "SUBARCH=arm64"
-          echo "LLVM=1"
-          echo "LLVM_IAS=1"
-          echo "CC=clang"
-          echo "LD=ld.lld"
-          echo "AR=llvm-ar"
-          echo "NM=llvm-nm"
-          echo "OBJCOPY=llvm-objcopy"
-          echo "OBJDUMP=llvm-objdump"
-          echo "STRIP=llvm-strip"
-          echo "READELF=llvm-readelf"
-        } >> "${GITHUB_ENV}"
-
-    - name: Verify LLVM
+    - name: Verify required tools
       shell: bash
       run: |
-        set -e
-
-        export PATH="${TOOLCHAIN_BIN}:${PATH}"
-
-        echo "========================================"
-        echo "VERIFYING LLVM TOOLCHAIN"
-        echo "========================================"
-
-        echo
-        echo "Clang:"
-        command -v clang
-        clang --version | head -n 1
-
-        echo
-        echo "LLD:"
-        command -v ld.lld
-        ld.lld --version | head -n 1
-
-        echo
-        echo "LLVM tools:"
-
-        for tool in \
-          llvm-ar \
-          llvm-nm \
-          llvm-objcopy \
-          llvm-objdump \
-          llvm-strip \
-          llvm-readelf
-        do
-          if ! command -v "${tool}" >/dev/null 2>&1; then
-            echo "::error::Missing ${tool}"
-            exit 1
-          fi
-
-          echo "OK: ${tool}"
+        set -euo pipefail
+        required=(clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-readelf make bc bison flex zip unzip tar cpio python3 aarch64-linux-gnu-gcc)
+        for tool in "${required[@]}"; do
+          command -v "$tool" >/dev/null 2>&1 || { echo "::error::Required tool is missing: $tool"; exit 1; }
         done
+        clang --version
+        make --version | head -n1
+        aarch64-linux-gnu-gcc --version | head -n1
 
-        echo
-        echo "LLVM toolchain ready."
-
-    - name: Verify Compiler Target
+    - name: Collect host metadata
+      id: metadata
       shell: bash
       run: |
-       set -e
-
-       export PATH="${TOOLCHAIN_BIN}:${PATH}"
-
-       echo "CC:"
-       command -v clang
-
-       echo
-       clang --version
-
-       echo
-       echo "Target:"
-       clang -dumpmachine
-
-       echo
-       echo "AArch64 test:"
-       printf 'int main(void) { return 0; }\n' |
-       clang \
-        --target=aarch64-linux-gnu \
-        -x c \
-        -c \
-        -o /tmp/test.o \
-        -
-
-       file /tmp/test.o
+        set -euo pipefail
+        META="OS=$(. /etc/os-release && echo "$PRETTY_NAME"); Runner=$(uname -a); CPU=$(nproc); RAM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo); Clang=$(clang --version | head -n1)"
+        echo "metadata=$META" >> "$GITHUB_OUTPUT"
+        {
+          echo "### Build host"
+          echo
+          echo '- OS:' "$(. /etc/os-release && echo "$PRETTY_NAME")"
+          echo '- Kernel:' "$(uname -r)"
+          echo '- CPU threads:' "$(nproc)"
+          echo '- RAM:' "$(awk '/MemTotal/ {print int($2/1024) " MB"}' /proc/meminfo)"
+          echo '- Clang:' "$(clang --version | head -n1)"
+          echo '- LLVM path:' "$LLVM_PATH"
+        } >> "$GITHUB_STEP_SUMMARY"
