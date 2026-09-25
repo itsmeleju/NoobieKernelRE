@@ -1,243 +1,515 @@
-name: Build NoobieKernelRE by NoobieThingZ
+name: NoobieKernel builder by NoobieThingZ
 
 on:
   workflow_dispatch:
     inputs:
-      ksu_option:
-        description: KernelSU / ReSukiSU setup
+      defconfig:
+        description: Kernel defconfig under arch/arm64/configs/
         required: true
-        default: enabled
-        type: choice
-        options:
-          - disabled
-          - enabled
-
-      nomount_option:
-        description: No-mount setup
-        required: false
-        default: disabled
-        type: choice
-        options:
-          - disabled
-          - enabled
-
-      localversion:
-        description: Kernel localversion
-        required: false
-        default: -ver1.03-GA
+        default: Noobie_SU_defconfig
         type: string
+      clang_version:
+        description: LLVM/Clang toolchain version
+        required: true
+        default: 15.0.7
+        type: choice
+        options:
+          - 15.0.7
+          - 14.0.6
+      resukisu_ref:
+        description: ReSukiSU branch/tag/commit
+        required: true
+        default: main
+        type: string
+      nomount_ref:
+        description: NoMount branch/tag/commit
+        required: false
+        default: v2.0.0
+        type: string
+      enable_nomount:
+        description: Integrate and enable NoMount
+        required: false
+        default: false
+        type: boolean
+      localversion:
+        description: Kernel LOCALVERSION suffix
+        required: true
+        default: -ver.1.03-GA
+        type: string
+#  push:
+#    branches:
+#      - main
+#  pull_request:
+#    branches:
+#      - main
+#      - mtk-performa
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ARCH: arm64
+  SUBARCH: arm64
+  DEFCONFIG: ${{ inputs.defconfig || 'Noobie_SU_defconfig' }}
+  LLVM_VERSION: ${{ inputs.clang_version || '15.0.7' }}
+  CROSS_COMPILE: aarch64-linux-gnu-
+  CROSS_COMPILE_COMPAT: arm-linux-gnueabi-
+  CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+  LLVM_IAS: 1
+  KCFLAGS: -w -pipe -O2
+  KBUILD_BUILD_USER: NoobieCI
+  KBUILD_BUILD_HOST: GitHub-Actions
+  KBUILD_BUILD_VERSION: 1
+  KBUILD_MODPOST_WARN: 0
+  TZ: Asia/Kolkata
 
 jobs:
   build:
-    name: A32 Kernel
+    name: Build ${{ inputs.defconfig || 'Noobie_SU_defconfig' }} / Clang ${{ inputs.clang_version || '15.0.7' }}
     runs-on: ubuntu-latest
-
-    env:
-      ARCH: arm64
-      SUBARCH: arm64
-      OUT_DIR: ${{ github.workspace }}/out
+    timeout-minutes: 90
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout kernel source
+        uses: actions/checkout@v7
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           submodules: recursive
+          persist-credentials: false
 
-      - name: Setup Build Environment
+      - name: Setup build environment
+        id: setup
         uses: ./.github/actions/setup-env
+        with:
+          llvm-version: ${{ env.LLVM_VERSION }}
+          install-packages: true
 
-      - name: Setup ReSukiSU
-        if: inputs.ksu_option == 'enabled'
+      - name: Verify kernel tree and AnyKernel3
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f Makefile || { echo "::error::Kernel Makefile not found. This checkout is not the kernel root."; exit 1; }
+          test -d arch/arm64/configs || { echo "::error::arch/arm64/configs is missing."; exit 1; }
+          test -f "arch/arm64/configs/${DEFCONFIG}" || {
+            echo "::error::Defconfig not found: arch/arm64/configs/${DEFCONFIG}";
+            echo "Available A32 defconfigs:";
+            find arch/arm64/configs -maxdepth 1 -type f -name 'a32*_defconfig' -printf '  %f\n' | sort | head -100;
+            exit 1;
+          }
+          test -d AnyKernel3 || { echo "::error::AnyKernel3 directory is required in the kernel source."; exit 1; }
+          test -f AnyKernel3/anykernel.sh || { echo "::error::AnyKernel3/anykernel.sh not found."; exit 1; }
+          mkdir -p out/ci-logs
+          echo "Kernel tree : $PWD"
+          echo "Git commit  : $(git rev-parse HEAD)"
+          echo "Defconfig   : $DEFCONFIG"
+          echo "Toolchain   : Clang $LLVM_VERSION"
+
+      - name: Clean generated build state
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf out
+          make mrproper
+          rm -f Module.symvers modules.order
+          rm -rf include/generated include/config
+          mkdir -p out/ci-logs
+
+      - name: Integrate ReSukiSU
         uses: ./.github/actions/resuki
         with:
-          defconfig-path: arch/arm64/configs/Noobie_SU_defconfig
+          ref: ${{ inputs.resukisu_ref || 'main' }}
+          enable-manual-hook: true
 
-      - name: Setup NoMount
-        if: inputs.nomount_option == 'enabled'
+      - name: Integrate NoMount
+        if: ${{ inputs.enable_nomount != false }}
         uses: ./.github/actions/no-mount
+        with:
+          ref: ${{ inputs.nomount_ref || 'v2.0.0' }}
+          enable: true
 
-      - name: Patch Clang Conversion Errors
+      - name: Configure kernel
         shell: bash
         run: |
-          set -e
-          if [ -f "drivers/clk/mediatek/clkdbg.c" ]; then
-            echo "Patching clkdbg.c pointer conversion errors..."
-            sed -i '470s/spm_pwr_status/\*spm_pwr_status/' drivers/clk/mediatek/clkdbg.c
-            sed -i '2023s/sp->spm_pwr_status/\&sp->spm_pwr_status/' drivers/clk/mediatek/clkdbg.c
-            echo "Patch applied."
-          fi
+          set -euo pipefail
+          LOG="out/ci-logs/configure.log"
 
-          if [ -f "drivers/soc/mediatek/mtk-cmdq-helper.c" ]; then
-            echo "Patching mtk-cmdq-helper.c pointer conversion errors..."
-            sed -i '598s/return -ENOMEM;/return ERR_PTR(-ENOMEM);/' drivers/soc/mediatek/mtk-cmdq-helper.c
-            echo "Patch applied to mtk-cmdq-helper.c."
-          fi
+          {
+            echo "[1/5] LLVM toolchain"
+            clang --version | head -n1
+            ld.lld --version | head -n1
+            echo
 
-      - name: Configure
+            echo "[2/5] Defconfig"
+            make O=out ARCH="$ARCH" LLVM=1 LLVM_IAS=1 "$DEFCONFIG"
+            echo
+
+            echo "[3/5] Compatibility/stability configuration"
+            test -f scripts/config || { echo "::error::scripts/config missing"; exit 1; }
+            scripts/config --file out/.config --enable SECTION_MISMATCH_WARN_ONLY
+            scripts/config --file out/.config --enable KALLSYMS
+            scripts/config --file out/.config --enable KALLSYMS_ALL
+            scripts/config --file out/.config --disable LOCALVERSION_AUTO
+            scripts/config --file out/.config --enable KSU
+            scripts/config --file out/.config --enable KSU_MANUAL_HOOK
+
+            if grep -RqsE '^config NOMOUNT($|[[:space:]])' fs/nomount/Kconfig 2>/dev/null; then
+              scripts/config --file out/.config --enable NOMOUNT
+            else
+              echo "::warning::No NoMount Kconfig symbol detected; leaving CONFIG_NOMOUNT unchanged."
+            fi
+
+            # Keep module-version policy explicit. For this non-GKI A32 kernel,
+            # disabling MODVERSIONS avoids stale __crc_* relocations when the
+            # vendor tree is built as a built-in kernel. If the source config
+            # explicitly requests it, leave it enabled and report it.
+            if grep -q '^CONFIG_MODVERSIONS=y$' out/.config; then
+              echo "::warning::CONFIG_MODVERSIONS=y; preserving vendor configuration."
+            else
+              scripts/config --file out/.config --disable MODVERSIONS
+            fi
+
+            echo
+            echo "[4/5] Normalize config"
+            make O=out ARCH="$ARCH" LLVM=1 LLVM_IAS=1 olddefconfig
+            echo
+
+            echo "[5/5] Final config checks"
+            required=(
+              '^CONFIG_SECTION_MISMATCH_WARN_ONLY=y$'
+              '^CONFIG_KALLSYMS=y$'
+              '^CONFIG_KALLSYMS_ALL=y$'
+              '^CONFIG_KSU=y$'
+            )
+            for pattern in "${required[@]}"; do
+              grep -qE "$pattern" out/.config || { echo "::error::Required config missing after olddefconfig: $pattern"; exit 1; }
+            done
+            echo "CONFIG_MODVERSIONS=$(grep -E '^CONFIG_MODVERSIONS=' out/.config || echo 'not set')"
+            echo "CONFIG_KSU_MANUAL_HOOK=$(grep -E '^CONFIG_KSU_MANUAL_HOOK=' out/.config || echo 'not set')"
+            echo "CONFIG_NOMOUNT=$(grep -E '^CONFIG_NOMOUNT=' out/.config || echo 'not set')"
+            echo
+            echo "--- Effective build variables ---"
+            env | grep -E '^(ARCH|SUBARCH|LLVM|CROSS_COMPILE|KCFLAGS|KBUILD_|LOCALVERSION|TZ)=' | sort
+          } 2>&1 | tee "$LOG"
+
+          git_hash="$(git rev-parse --short HEAD)"
+          commit_ts="$(git show -s --format=%ct HEAD)"
+          build_ts="$(date -u -d "@$commit_ts" '+%Y-%m-%d %H:%M:%S UTC')"
+          {
+            echo "CONFIG_GIT_HASH=$git_hash"
+            echo "CONFIG_BUILD_TIMESTAMP=$build_ts"
+          } >> "$GITHUB_ENV"
+
+      - name: Export build flags
         shell: bash
         run: |
-          set -e
-
-          export PATH="${TOOLCHAIN_BIN}:${PATH}"
-
-          rm -rf "${OUT_DIR}"
-          mkdir -p "${OUT_DIR}"
-
-          make \
-            O="${OUT_DIR}" \
-            ARCH="${ARCH}" \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            Noobie_SU_defconfig
-
-          scripts/config \
-            --file "${OUT_DIR}/.config" \
-            --set-str CONFIG_LOCALVERSION "${{ inputs.localversion }}"
-
-          # This kernel is packaged as a monolithic Image and does not
-          # require module ABI CRCs. Avoid the arm64/L櫢LD modversion
-          # relocation failure.
-          scripts/config \
-            --file "${OUT_DIR}/.config" \
-            --disable CONFIG_MODVERSIONS
-
-          make \
-            O="${OUT_DIR}" \
-            ARCH="${ARCH}" \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            olddefconfig
-
-      - name: Build
-        shell: bash
-        run: |
-          set -e
-          set -o pipefail
-
-          export PATH="${TOOLCHAIN_BIN}:${PATH}"
-
+          set -euo pipefail
+          export CC=clang
+          export CXX=clang++
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export READELF=llvm-readelf
+          export STRIP=llvm-strip
+          export HOSTCC=clang
+          export HOSTCXX=clang++
+          export HOSTLD=ld.lld
+          export HOSTAR=llvm-ar
+          export LLVM=1
+          export LLVM_IAS=1
           export ARCH=arm64
           export SUBARCH=arm64
-          export CC="${TOOLCHAIN_BIN}/clang"
-          export LD="${TOOLCHAIN_BIN}/ld.lld"
-          export OBJCOPY="${TOOLCHAIN_BIN}/llvm-objcopy"
-          export NM="${TOOLCHAIN_BIN}/llvm-nm"
-          export STRIP="${TOOLCHAIN_BIN}/llvm-strip"
-          export OBJDUMP="${TOOLCHAIN_BIN}/llvm-objdump"
-          export READELF="${TOOLCHAIN_BIN}/llvm-readelf"
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export KCFLAGS='-w -pipe -O2'
+          export LOCALVERSION='${{ inputs.localversion || '-NoobieRE' }}'
+          export KBUILD_BUILD_USER='NoobieCI'
+          export KBUILD_BUILD_HOST='GitHub-Actions'
+          export KBUILD_BUILD_VERSION='1'
+          export KBUILD_BUILD_TIMESTAMP="$CONFIG_BUILD_TIMESTAMP"
+          {
+            echo "CC=$CC"
+            echo "CXX=$CXX"
+            echo "LD=$LD"
+            echo "AR=$AR"
+            echo "NM=$NM"
+            echo "OBJCOPY=$OBJCOPY"
+            echo "OBJDUMP=$OBJDUMP"
+            echo "READELF=$READELF"
+            echo "STRIP=$STRIP"
+            echo "HOSTCC=$HOSTCC"
+            echo "HOSTCXX=$HOSTCXX"
+            echo "HOSTLD=$HOSTLD"
+            echo "HOSTAR=$HOSTAR"
+            echo "LLVM=$LLVM"
+            echo "LLVM_IAS=$LLVM_IAS"
+            echo "ARCH=$ARCH"
+            echo "CROSS_COMPILE=$CROSS_COMPILE"
+            echo "CROSS_COMPILE_COMPAT=$CROSS_COMPILE_COMPAT"
+            echo "CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32"
+            echo "KCFLAGS=$KCFLAGS"
+            echo "LOCALVERSION=$LOCALVERSION"
+            echo "KBUILD_BUILD_TIMESTAMP=$KBUILD_BUILD_TIMESTAMP"
+          } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "CC=clang"
+            echo "CXX=clang++"
+            echo "LD=ld.lld"
+            echo "AR=llvm-ar"
+            echo "NM=llvm-nm"
+            echo "OBJCOPY=llvm-objcopy"
+            echo "OBJDUMP=llvm-objdump"
+            echo "READELF=llvm-readelf"
+            echo "STRIP=llvm-strip"
+            echo "HOSTCC=clang"
+            echo "HOSTCXX=clang++"
+            echo "HOSTLD=ld.lld"
+            echo "HOSTAR=llvm-ar"
+          } >> "$GITHUB_ENV"
 
-          LOG="${RUNNER_TEMP}/kernel-build.log"
-          touch "${LOG}"
+      - name: Build kernel
+        id: kernel-build
+        shell: bash
+        run: |
+          set -o pipefail
+          set -u
+          LOG="out/ci-logs/build.log"
+          JOBS="$(nproc)"
 
-          JOBS="$(nproc --all)"
+          echo "Starting kernel build with $JOBS jobs..."
+          start_epoch="$(date +%s)"
 
-          echo "Building with ${JOBS} jobs..."
-          echo "Clang: $(${CC} --version | head -n 1)"
-
-          make \
-            -C "${GITHUB_WORKSPACE}" \
-            O="${OUT_DIR}" \
-            ARCH="${ARCH}" \
+          make -C . O=out \
+            ARCH="$ARCH" \
+            SUBARCH="$SUBARCH" \
             LLVM=1 \
             LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            KCFLAGS="-w -pipe -O3" \
-            CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-            -j"${JOBS}" \
-            2>&1 | tee "${LOG}"
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            CROSS_COMPILE_COMPAT="$CROSS_COMPILE_COMPAT" \
+            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
+            KCFLAGS="$KCFLAGS" \
+            KBUILD_MODPOST_WARN="$KBUILD_MODPOST_WARN" \
+            KBUILD_BUILD_USER="$KBUILD_BUILD_USER" \
+            KBUILD_BUILD_HOST="$KBUILD_BUILD_HOST" \
+            KBUILD_BUILD_VERSION="$KBUILD_BUILD_VERSION" \
+            KBUILD_BUILD_TIMESTAMP="$CONFIG_BUILD_TIMESTAMP" \
+            LOCALVERSION="${{ inputs.localversion || '-NoobieRE' }}" \
+            -j"$JOBS" Image dtbs 2>&1 | tee "$LOG"
+          rc=${PIPESTATUS[0]}
+          end_epoch="$(date +%s)"
+          elapsed=$((end_epoch - start_epoch))
+          echo "Build exit code: $rc"
+          echo "Build duration: ${elapsed}s"
+          echo "BUILD_EXIT_CODE=$rc" >> "$GITHUB_ENV"
+          echo "BUILD_DURATION=${elapsed}s" >> "$GITHUB_ENV"
+          if [[ "$rc" -ne 0 ]]; then
+            echo "::error::Kernel compilation failed with exit code $rc. See out/ci-logs/build.log and error-summary.txt."
+            exit "$rc"
+          fi
 
-
-
-      - name: Verify Kernel
+      - name: Diagnose build result
+        if: always()
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+          mkdir -p out/ci-logs
+          LOG="out/ci-logs/build.log"
+          SUMMARY="out/ci-logs/error-summary.txt"
+          : > "$SUMMARY"
 
-          IMAGE="${OUT_DIR}/arch/arm64/boot/Image"
+          if [[ -f "$LOG" ]]; then
+            errors="$(grep -Eic '(^|[ :])(fatal error:|error:|ld\.lld: error|collect2: error|undefined reference|relocation .*cannot be used|No rule to make target|make(\[[0-9]+\])?: \*\*\*)' "$LOG" || true)"
+            warnings="$(grep -Eic '(^|[ :])(warning:|WARNING:)' "$LOG" || true)"
+            error_lines="$(grep -nEi '(^|[ :])(fatal error:|error:|ld\.lld: error|collect2: error|undefined reference|relocation .*cannot be used|No rule to make target|make(\[[0-9]+\])?: \*\*\*)' "$LOG" | head -30 || true)"
+            file_hints="$(grep -Eo '[A-Za-z0-9_./+:-]+\.(c|cc|cpp|h|S|s|o|a|lds):[0-9]+' "$LOG" | sort | uniq -c | sort -nr | head -20 || true)"
+            compat="$(grep -nEi 'EXPORT symbol .*version generation failed|section mismatch|symbol mismatch|warning:.*deprecated|warning:.*clang' "$LOG" | head -30 || true)"
 
-          test -s "${IMAGE}"
+            {
+              echo "Kernel CI diagnostics"
+              echo "====================="
+              echo "Commit: $(git rev-parse HEAD)"
+              echo "Defconfig: $DEFCONFIG"
+              echo "Clang: $(clang --version | head -n1)"
+              echo "Errors: $errors"
+              echo "Warnings: $warnings"
+              echo
+              echo "First detected fatal/error diagnostics"
+              echo "--------------------------------------"
+              if [[ -n "$error_lines" ]]; then
+                printf '%s\n' "$error_lines"
+              else
+                echo "No fatal compiler/linker error pattern found."
+              fi
+              echo
+              echo "Files most often referenced by diagnostics"
+              echo "-----------------------------------------"
+              if [[ -n "$file_hints" ]]; then
+                printf '%s\n' "$file_hints"
+              else
+                echo "No source-file hints found."
+              fi
+              echo
+              echo "Non-fatal compatibility warnings"
+              echo "---------------------------------"
+              if [[ -n "$compat" ]]; then
+                printf '%s\n' "$compat"
+              else
+                echo "None detected."
+              fi
+              echo
+              echo "Last 100 log lines"
+              echo "------------------"
+              tail -n 100 "$LOG"
+            } > "$SUMMARY"
 
-          file "${IMAGE}"
-          ls -lh "${IMAGE}"
+            {
+              echo "### Build diagnostics"
+              echo
+              echo "- Errors: $errors"
+              echo "- Warnings: $warnings"
+              echo "- Full log: \\"out/ci-logs/build.log\\""
+              echo
+              echo '```text'
+              printf '%s\n' "$error_lines"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No build log was produced. The failure occurred before compilation started." > "$SUMMARY"
+          fi
 
-          echo "Kernel Image verified."
-
-      - name: Package
+      - name: Verify raw Image and DTBO
+        if: ${{ success() }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+          IMAGE="out/arch/arm64/boot/Image"
+          test -s "$IMAGE" || { echo "::error::Raw Image missing or empty: $IMAGE"; exit 1; }
+          cp -f "$IMAGE" out/Image
 
-          IMAGE="${OUT_DIR}/arch/arm64/boot/Image"
-          AK_DIR="${GITHUB_WORKSPACE}/AnyKernel"
-          STAGE="${RUNNER_TEMP}/AnyKernel"
+          DTBO=""
+          for candidate in \
+            "out/arch/arm64/boot/dtbo.img" \
+            "out/dtbo.img" \
+            "arch/arm64/boot/dtbo.img" \
+            "dtbo.img"; do
+            if [[ -s "$candidate" ]]; then DTBO="$candidate"; break; fi
+          done
+          if [[ -z "$DTBO" ]]; then
+            DTBO="$(find out arch/arm64 -type f -name 'dtbo.img' -size +0c -print -quit 2>/dev/null || true)"
+          fi
+          test -n "$DTBO" || { echo "::error::dtbo.img was not produced/found."; exit 1; }
+          cp -f "$DTBO" out/dtbo.img
 
-          test -s "${IMAGE}"
-          test -f "${AK_DIR}/anykernel.sh"
+          IMAGE_SIZE="$(stat -c '%s' out/Image)"
+          DTBO_SIZE="$(stat -c '%s' out/dtbo.img)"
+          SHA256_IMAGE="$(sha256sum out/Image | awk '{print $1}')"
+          SHA256_DTBO="$(sha256sum out/dtbo.img | awk '{print $1}')"
+          KERNEL_VERSION="$(make -s O=out ARCH=arm64 kernelversion)"
 
-          rm -rf "${STAGE}"
-          mkdir -p "${STAGE}"
+          {
+            echo "KERNEL_VERSION=$KERNEL_VERSION"
+            echo "IMAGE_SIZE=$IMAGE_SIZE"
+            echo "DTBO_SIZE=$DTBO_SIZE"
+            echo "IMAGE_SHA256=$SHA256_IMAGE"
+            echo "DTBO_SHA256=$SHA256_DTBO"
+            echo "DTBO_SOURCE=$DTBO"
+          } >> "$GITHUB_ENV"
 
-          cp -a "${AK_DIR}/." "${STAGE}/"
+          {
+            echo "### Raw build output"
+            echo
+            echo "- Kernel version: $KERNEL_VERSION"
+            echo "- Image: $IMAGE_SIZE bytes"
+            echo "- Image SHA256: $SHA256_IMAGE"
+            echo "- DTBO: $DTBO_SIZE bytes"
+            echo "- DTBO SHA256: $SHA256_DTBO"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          rm -f \
-            "${STAGE}/Image" \
-            "${STAGE}/Image.gz" \
-            "${STAGE}/Image.gz-dtb" \
-            "${STAGE}/dtbo.img"
+      - name: Pack AnyKernel3 zip
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_STAMP="$(TZ=Asia/Kolkata date '+%d-%m-%H-%M')"
+          SAFE_NAME="NoobieKrnlRE-GA-${BUILD_STAMP}"
+          ZIP="${SAFE_NAME}.zip"
 
-          cp "${IMAGE}" "${STAGE}/Image"
+          rm -f AnyKernel3/Image AnyKernel3/dtbo.img
+          cp -f out/Image AnyKernel3/Image
+          cp -f out/dtbo.img AnyKernel3/dtbo.img
 
-          DATE="$(date -u +%Y%m%d-%H%M)"
-          SHA="$(git rev-parse --short=8 HEAD)"
-
-          ZIP_NAME="NoobieKernelRE-A32-${DATE}-${SHA}.zip"
-          ZIP_PATH="${GITHUB_WORKSPACE}/${ZIP_NAME}"
+          test -s AnyKernel3/Image
+          test -s AnyKernel3/dtbo.img
+          rm -f "out/$ZIP"
 
           (
-            cd "${STAGE}"
+            cd AnyKernel3
+            zip -r -9 "$GITHUB_WORKSPACE/out/$ZIP" . \
+              -x '.git/*' -x '.github/*' -x '*.gitignore'
+          ) >/tmp/anykernel-zip.log
 
-            zip -r9 "${ZIP_PATH}" . \
-              -x ".git/*" \
-              -x ".github/*" \
-              -x "README.md"
-          )
+          unzip -t "out/$ZIP" >/tmp/anykernel-test.log
+          unzip -l "out/$ZIP" | grep -E '(^|[[:space:]])Image$' >/dev/null || { echo "::error::Image is missing from final zip."; exit 1; }
+          unzip -l "out/$ZIP" | grep -E '(^|[[:space:]])dtbo\.img$' >/dev/null || { echo "::error::dtbo.img is missing from final zip."; exit 1; }
 
-          test -s "${ZIP_PATH}"
+          sha256sum "out/$ZIP" > "out/${ZIP}.sha256"
+          echo "KERNEL_ZIP=$ZIP" >> "$GITHUB_ENV"
 
-          unzip -p "${ZIP_PATH}" Image | cmp - "${IMAGE}"
+          {
+            echo "### AnyKernel3 package"
+            echo
+            echo "- File: $ZIP"
+            echo "- Size: $(stat -c '%s' "out/$ZIP") bytes"
+            echo "- SHA256: $(awk '{print $1}' "out/${ZIP}.sha256")"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          sha256sum \
-            "${IMAGE}" \
-            "${ZIP_PATH}" \
-            > "${GITHUB_WORKSPACE}/SHA256SUMS.txt"
-
-          echo "ZIP_PATH=${ZIP_PATH}" >> "${GITHUB_ENV}"
-          echo "SHA_FILE=${GITHUB_WORKSPACE}/SHA256SUMS.txt" >> "${GITHUB_ENV}"
-
-      - name: Upload Kernel
-        uses: actions/upload-artifact@v4
-        with:
-          name: NoobieKernelRE-A32-${{ github.run_number }}
-          path: ${{ env.ZIP_PATH }}
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-
-      - name: Upload SHA256
-        uses: actions/upload-artifact@v4
-        with:
-          name: NoobieKernelRE-SHA256-${{ github.run_number }}
-          path: ${{ env.SHA_FILE }}
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload Build Log
+      - name: Upload kernel package and diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: NoobieKernelRE-BuildLog-${{ github.run_number }}
-          path: ${{ runner.temp }}/kernel-build.log
-          if-no-files-found: ignore
-          retention-days: 7
+          name: kernel-${{ github.run_number }}
+          path: |
+            out/*.zip
+            out/*.sha256
+            out/Image
+            out/dtbo.img
+            out/ci-logs/**
+          if-no-files-found: warn
+          compression-level: 0
+          overwrite: true
+
+      - name: Telegram success report
+        if: ${{ success() }}
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          set -euo pipefail
+          ./scripts/telegram-report.sh success \
+            "${KERNEL_ZIP:-}" \
+            "${KERNEL_VERSION:-unknown}" \
+            "${BUILD_DURATION:-unknown}" \
+            "${IMAGE_SHA256:-unknown}"
+
+      - name: Telegram failure report
+        if: ${{ failure() }}
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          set -euo pipefail
+          ./scripts/telegram-report.sh failure \
+            "${KERNEL_ZIP:-}" \
+            "${KERNEL_VERSION:-unknown}" \
+            "${BUILD_DURATION:-unknown}" \
+            "${IMAGE_SHA256:-unknown}"
