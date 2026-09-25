@@ -39,7 +39,7 @@ runs:
         path: ${{ github.workspace }}/toolchain
         key: zycromerz-clang-${{ runner.os }}-${{ runner.arch }}-latest
 
-    - name: Download ZyCromerZ Clang
+    - name: Download ZyCromerZ Clang (v14)
       if: steps.clang-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
@@ -48,48 +48,30 @@ runs:
         TOOLCHAIN="${GITHUB_WORKSPACE}/toolchain"
         mkdir -p "${TOOLCHAIN}"
 
-        echo "Downloading latest ZyCromerZ Clang..."
+        echo "Fetching latest ZyCromerZ Clang-14 release..."
 
-        URL="$(
-          curl -fsSL \
-            https://api.github.com/repos/ZyCromerZ/Clang/releases/latest \
-          | jq -r '
-              .assets[]
-              | select(
-                  .name | endswith(".tar.gz") or endswith(".tar.xz")
-                )
-              | .browser_download_url
-            ' \
-          | head -n 1
-        )"
+        # Query ZyCromerZ releases specifically matching Clang 14 tag
+        URL=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases | jq -r '
+          [.[] | select(.tag_name | contains("14."))] | first | .assets[]
+          | select(.name | endswith(".tar.gz") or endswith(".tar.xz"))
+          | .browser_download_url
+        ')
 
         if [ -z "${URL}" ] || [ "${URL}" = "null" ]; then
-          echo "ERROR: Could not find ZyCromerZ Clang archive."
+          echo "ERROR: Unable to locate a valid Clang archive download URL."
           exit 1
         fi
 
-        echo "Download URL:"
-        echo "${URL}"
+        echo "Downloading: ${URL}"
+        ARCHIVE="${RUNNER_TEMP}/clang.tar.gz"
 
-        ARCHIVE="${RUNNER_TEMP}/clang.tar"
+        curl -sSL --retry 3 --output "${ARCHIVE}" "${URL}"
 
-        curl \
-          --fail \
-          --location \
-          --retry 5 \
-          --retry-delay 3 \
-          --output "${ARCHIVE}" \
-          "${URL}"
-
-        test -s "${ARCHIVE}"
-
-        echo "Extracting Clang..."
-
+        echo "Extracting toolchain to ${TOOLCHAIN}..."
         tar -xf "${ARCHIVE}" -C "${TOOLCHAIN}"
-
         rm -f "${ARCHIVE}"
 
-        echo "Clang extraction completed."
+        echo "Clang setup completed successfully."
 
     - name: Configure LLVM
       shell: bash
@@ -129,6 +111,8 @@ runs:
       shell: bash
       run: |
         set -e
+
+        export PATH="${GITHUB_WORKSPACE}/toolchain/bin:${PATH}"
 
         echo "Clang:"
         clang --version | head -n 1
