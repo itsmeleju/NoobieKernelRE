@@ -36,7 +36,6 @@ jobs:
       ARCH: arm64
       SUBARCH: arm64
       OUT_DIR: ${{ github.workspace }}/out
-      TOOLCHAIN_DIR: ${{ github.workspace }}/toolchain
 
     steps:
       - name: Checkout
@@ -63,7 +62,7 @@ jobs:
         run: |
           set -e
 
-          export PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
+          export PATH="${TOOLCHAIN_BIN}:${PATH}"
 
           rm -rf "${OUT_DIR}"
           mkdir -p "${OUT_DIR}"
@@ -93,7 +92,7 @@ jobs:
           set -e
           set -o pipefail
 
-          export PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
+          export PATH="${TOOLCHAIN_BIN}:${PATH}"
           
           LOG="${RUNNER_TEMP}/kernel-build.log"
           touch "${LOG}"
