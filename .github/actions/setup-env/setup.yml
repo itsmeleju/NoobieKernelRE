@@ -1,0 +1,8 @@
+# Setup manifest only.
+# The executable composite-action metadata lives in action.yml because GitHub
+# requires a local action metadata file named action.yml/action.yaml.
+llvm_version: "15.0.7"
+llvm_archive: "llvm-15.0.7-x86_64.tar.xz"
+llvm_url: "https://www.kernel.org/pub/tools/llvm/files/llvm-15.0.7-x86_64.tar.xz"
+llvm_sha_url: "https://www.kernel.org/pub/tools/llvm/files/sha256sums.asc"
+cache_subdir: ".cache/noobie-kernel-toolchains"
