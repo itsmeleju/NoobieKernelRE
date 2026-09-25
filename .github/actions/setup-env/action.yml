@@ -207,3 +207,32 @@ runs:
 
         echo
         echo "LLVM toolchain ready."
+
+    - name: Verify Compiler Target
+      shell: bash
+      run: |
+       set -e
+
+       export PATH="${TOOLCHAIN_BIN}:${PATH}"
+
+       echo "CC:"
+       command -v clang
+
+       echo
+       clang --version
+
+       echo
+       echo "Target:"
+       clang -dumpmachine
+
+       echo
+       echo "AArch64 test:"
+       printf 'int main(void) { return 0; }\n' |
+       clang \
+        --target=aarch64-linux-gnu \
+        -x c \
+        -c \
+        -o /tmp/test.o \
+        -
+
+       file /tmp/test.o
