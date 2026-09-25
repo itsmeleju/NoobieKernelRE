@@ -39,39 +39,34 @@ runs:
         path: ${{ github.workspace }}/toolchain
         key: zycromerz-clang-${{ runner.os }}-${{ runner.arch }}-latest
 
-    - name: Download ZyCromerZ Clang (v14)
+    - name: Download ZyCromerZ Clang 15
       if: steps.clang-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         set -e
 
         TOOLCHAIN="${GITHUB_WORKSPACE}/toolchain"
+        rm -rf "${TOOLCHAIN}"
         mkdir -p "${TOOLCHAIN}"
 
-        echo "Fetching latest ZyCromerZ Clang-14 release..."
+        URL="https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20260801-release/Clang-15.0.7-20260801.tar.gz"
+        ARCHIVE="${RUNNER_TEMP}/clang15.tar.gz"
 
-        # Query ZyCromerZ releases specifically matching Clang 14 tag
-        URL=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases | jq -r '
-          [.[] | select(.tag_name | contains("14."))] | first | .assets[]
-          | select(.name | endswith(".tar.gz") or endswith(".tar.xz"))
-          | .browser_download_url
-        ')
-
-        if [ -z "${URL}" ] || [ "${URL}" = "null" ]; then
-          echo "ERROR: Unable to locate a valid Clang archive download URL."
-          exit 1
-        fi
-
-        echo "Downloading: ${URL}"
-        ARCHIVE="${RUNNER_TEMP}/clang.tar.gz"
-
+        echo "Downloading ZyCromerZ Clang 15..."
         curl -sSL --retry 3 --output "${ARCHIVE}" "${URL}"
 
-        echo "Extracting toolchain to ${TOOLCHAIN}..."
+        echo "Extracting toolchain..."
         tar -xf "${ARCHIVE}" -C "${TOOLCHAIN}"
         rm -f "${ARCHIVE}"
 
-        echo "Clang setup completed successfully."
+        # Verify clang executable exists
+        if [ ! -f "${TOOLCHAIN}/bin/clang" ]; then
+          echo "ERROR: clang binary missing at ${TOOLCHAIN}/bin/clang"
+          ls -la "${TOOLCHAIN}"
+          exit 1
+        fi
+
+        echo "ZyCromerZ Clang 15 successfully installed."
 
     - name: Configure LLVM
       shell: bash
