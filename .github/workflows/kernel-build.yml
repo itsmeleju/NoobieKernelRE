@@ -1,0 +1,222 @@
+name: NoobieKernelRE Builder
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout NoobieKernelRE
+        uses: actions/checkout@v4
+        with:
+          repository: itsmeleju/NoobieKernelRE
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Cleanup runner
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo apt-get clean
+
+      - name: Cache Clang
+        uses: actions/cache@v4
+        with:
+          path: clang/
+          key: ${{ runner.os }}-neutron-zyc-clang-v1
+
+      - name: Setup Clang & Environment
+        uses: ./.github/actions/setup-clang
+
+      - name: Build kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export PATH="/usr/bin:${CLANG_DIR}/bin:${PATH}"
+
+          BUILD_START=$(date +%s)
+          TC_DIR="${CLANG_DIR}/bin"
+          DEFCONFIG="Noobie_SU_defconfig"
+
+          echo "[*] Kernel: NoobieKernelRE"
+          echo "[*] Defconfig: ${DEFCONFIG}"
+          echo "[*] Clang: $(${TC_DIR}/clang --version | head -n1)"
+
+          make \
+            O=out \
+            ARCH=arm64 \
+            SUBARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CC="${TC_DIR}/clang" \
+            LD="${TC_DIR}/ld.lld" \
+            AR="${TC_DIR}/llvm-ar" \
+            NM="${TC_DIR}/llvm-nm" \
+            OBJCOPY="${TC_DIR}/llvm-objcopy" \
+            OBJDUMP="${TC_DIR}/llvm-objdump" \
+            STRIP="${TC_DIR}/llvm-strip" \
+            READELF="${TC_DIR}/llvm-readelf" \
+            OBJSIZE="${TC_DIR}/llvm-size" \
+            LLVM_AR="${TC_DIR}/llvm-ar" \
+            LLVM_DIS="${TC_DIR}/llvm-dis" \
+            HOSTCC=/usr/bin/gcc \
+            HOSTCXX=/usr/bin/g++ \
+            HOSTLD=/usr/bin/ld \
+            HOSTAR=/usr/bin/ar \
+            LLVM=1 \
+            LLVM_IAS=0 \
+            KCFLAGS="-w -pipe -O2 -Wno-error" \
+            CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+            "${DEFCONFIG}"
+
+          JOBS=$(nproc --all)
+          echo "[*] Building with ${JOBS} threads..."
+
+          make \
+            O=out \
+            ARCH=arm64 \
+            SUBARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CC="${TC_DIR}/clang" \
+            LD="${TC_DIR}/ld.lld" \
+            AR="${TC_DIR}/llvm-ar" \
+            NM="${TC_DIR}/llvm-nm" \
+            OBJCOPY="${TC_DIR}/llvm-objcopy" \
+            OBJDUMP="${TC_DIR}/llvm-objdump" \
+            STRIP="${TC_DIR}/llvm-strip" \
+            READELF="${TC_DIR}/llvm-readelf" \
+            OBJSIZE="${TC_DIR}/llvm-size" \
+            LLVM_AR="${TC_DIR}/llvm-ar" \
+            LLVM_DIS="${TC_DIR}/llvm-dis" \
+            HOSTCC=/usr/bin/gcc \
+            HOSTCXX=/usr/bin/g++ \
+            HOSTLD=/usr/bin/ld \
+            HOSTAR=/usr/bin/ar \
+            LLVM=1 \
+            LLVM_IAS=0 \
+            KCFLAGS="-w -pipe -O2 -Wno-error" \
+            CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+            -j"${JOBS}" 2>&1 | tee build.log
+
+          BUILD_END=$(date +%s)
+          echo "BUILD_DURATION=$((BUILD_END - BUILD_START))s" >> "$GITHUB_ENV"
+          echo "KERNEL_VERSION=$(make O=out ARCH=arm64 kernelversion)" >> "$GITHUB_ENV"
+
+      - name: Verify kernel outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IMAGE="out/arch/arm64/boot/Image"
+          DTBO="out/arch/arm64/boot/dtbo.img"
+
+          echo "[*] Checking kernel outputs..."
+
+          test -s "$IMAGE" || { echo "[!] Raw Image not found: $IMAGE"; exit 1; }
+          test -s "$DTBO" || { echo "[!] DTBO not found: $DTBO"; exit 1; }
+
+          echo "[✓] Image: $(du -h "$IMAGE" | cut -f1)"
+          echo "[✓] DTBO:  $(du -h "$DTBO" | cut -f1)"
+
+          IMAGE_SHA256=$(sha256sum "$IMAGE" | awk '{print $1}')
+          echo "IMAGE_SHA256=$IMAGE_SHA256" >> "$GITHUB_ENV"
+
+      - name: Prepare AnyKernel3
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IMAGE="out/arch/arm64/boot/Image"
+          DTBO="out/arch/arm64/boot/dtbo.img"
+
+          test -d AnyKernel3 || { echo "[!] AnyKernel3 directory not found"; exit 1; }
+
+          rm -f AnyKernel3/*.zip AnyKernel3/Image AnyKernel3/Image.* AnyKernel3/dtbo.img
+
+          cp "$IMAGE" AnyKernel3/Image
+          cp "$DTBO" AnyKernel3/dtbo.img
+
+          echo "[*] AnyKernel3 files:"
+          ls -lh AnyKernel3/Image AnyKernel3/dtbo.img
+
+      - name: Build and verify AK3 zip
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUILD_TIME=$(TZ=Asia/Kolkata date +"%d-%m-%H%M")
+          KERNEL_ZIP="NoobieKrnlRE-GA-${BUILD_TIME}.zip"
+
+          cd AnyKernel3
+
+          zip -r9 "../${KERNEL_ZIP}" . \
+            -x "*.git*" \
+            -x "*.github*" \
+            -x "README.md" \
+            -x "*.zip"
+
+          cd ..
+
+          test -s "$KERNEL_ZIP"
+
+          echo "[*] Verifying ZIP contents..."
+          unzip -l "$KERNEL_ZIP"
+
+          unzip -l "$KERNEL_ZIP" | grep -Eq '(^|[[:space:]])Image$' \
+            || { echo "[!] Image missing from ZIP"; exit 1; }
+
+          unzip -l "$KERNEL_ZIP" | grep -Eq '(^|[[:space:]])dtbo\.img$' \
+            || { echo "[!] dtbo.img missing from ZIP"; exit 1; }
+
+          echo "[✓] Image found in ZIP"
+          echo "[✓] dtbo.img found in ZIP"
+          echo "KERNEL_ZIP=${KERNEL_ZIP}" >> "$GITHUB_ENV"
+
+      - name: Upload kernel ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoobieKrnlRE-GA-${{ github.run_number }}
+          path: ${{ env.KERNEL_ZIP }}
+          if-no-files-found: error
+
+      - name: Telegram success report
+        if: ${{ success() && github.event_name != 'pull_request' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          set -euo pipefail
+
+          bash .github/scripts/telegram-report.sh success \
+            "${KERNEL_ZIP:-}" \
+            "${KERNEL_VERSION:-unknown}" \
+            "${BUILD_DURATION:-unknown}" \
+            "${IMAGE_SHA256:-unknown}"
+
+      - name: Telegram failure report
+        if: ${{ failure() && github.event_name != 'pull_request' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          set -euo pipefail
+
+          bash .github/scripts/telegram-report.sh failure \
+            "${KERNEL_ZIP:-}" \
+            "${KERNEL_VERSION:-unknown}" \
+            "${BUILD_DURATION:-unknown}" \
+            "${IMAGE_SHA256:-unknown}"
