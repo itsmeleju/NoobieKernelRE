@@ -9,7 +9,7 @@ on:
         default: Noobie_SU_defconfig
         type: string
 
-      "resukisu":
+      resukisu_integration:
         description: Enable ReSukiSU / KernelSU integration
         required: true
         default: enabled
@@ -30,8 +30,8 @@ on:
         default: false
         type: boolean
 
-      "gpu_driver":
-        description: GPU driver update under defconfig
+      gpu_driver:
+        description: GPU driver version
         required: true
         default: r25p
         type: choice
@@ -218,7 +218,7 @@ jobs:
             echo "============================================================"
             echo "Defconfig    : ${{ inputs.defconfig }}"
             echo "GPU driver   : ${{ inputs.gpu_driver }}"
-            echo "ReSukiSU     : ${{ inputs.resukisu }}"
+            echo "ReSukiSU     : ${{ inputs.resukisu_integration }}"
             echo "NoMount      : ${{ inputs.enable_nomount }}"
             echo "NoMount ref  : ${{ inputs.nomount_ref }}"
             echo "Localversion : ${{ inputs.localversion }}"
@@ -358,7 +358,7 @@ EOF
       # ============================================================
 
       - name: Integrate ReSukiSU
-        if: ${{ inputs.resukisu == 'enabled' }}
+        if: ${{ inputs.resukisu_integration == 'enabled' }}
         uses: ./.github/actions/resuki
         with:
           ref: main
@@ -368,7 +368,7 @@ EOF
       # ============================================================
 
       - name: Verify ReSukiSU
-        if: ${{ inputs.resukisu == 'enabled' }}
+        if: ${{ inputs.resukisu_integration == 'enabled' }}
         shell: bash
         run: |
           set -e
@@ -624,7 +624,7 @@ EOF
           echo "Errors found : ${ERROR_COUNT}" >> build.log
           echo "GPU driver   : ${{ inputs.gpu_driver }}" >> build.log
           echo "Defconfig    : ${{ inputs.defconfig }}" >> build.log
-          echo "ReSukiSU     : ${{ inputs.resukisu }}" >> build.log
+          echo "ReSukiSU     : ${{ inputs.resukisu_integration }}" >> build.log
           echo "NoMount      : ${{ inputs.enable_nomount }}" >> build.log
           echo "Kernel ZIP   : ${KERNEL_ZIP:-not created}" >> build.log
           echo "Finished     : $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> build.log
@@ -640,7 +640,7 @@ EOF
             echo "| Status | ${{ job.status }} |"
             echo "| Defconfig | ${{ inputs.defconfig }} |"
             echo "| GPU | ${{ inputs.gpu_driver }} |"
-            echo "| ReSukiSU | ${{ inputs.resukisu }} |"
+            echo "| ReSukiSU | ${{ inputs.resukisu_integration }} |"
             echo "| NoMount | ${{ inputs.enable_nomount }} |"
             echo "| NoMount ref | ${{ inputs.nomount_ref }} |"
             echo "| Kernel | ${KERNEL_VERSION:-unknown} |"
