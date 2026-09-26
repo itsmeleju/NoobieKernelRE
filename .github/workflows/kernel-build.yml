@@ -2,6 +2,35 @@ name: NoobieKernelRE Builder
 
 on:
   workflow_dispatch:
+    inputs:
+      defconfig:
+        description: Kernel defconfig under arch/arm64/configs/
+        required: true
+        default: Noobie_SU_defconfig
+        type: string
+      "resukisu/kernelsu Integration":
+        description: ReSukiSU branch/tag/commit
+        required: true
+        default: enabled
+        type: choice
+        options:
+          - enabled
+          - disabled
+      nomount_ref:
+        description: NoMount branch/tag/commit
+        required: false
+        default: v2.0.0
+        type: string
+      enable_nomount:
+        description: Integrate and enable NoMount
+        required: false
+        default: false
+        type: boolean
+      localversion:
+        description: Kernel LOCALVERSION suffix
+        required: true
+        default: -ver.1.03-GA
+        type: string
 
 jobs:
   build:
@@ -32,20 +61,19 @@ jobs:
       - name: Setup Clang & Environment
         uses: ./.github/actions/setup-clang
 
-      - name: Build kernel
+      - name: Configure kernel
         shell: bash
         run: |
           set -euo pipefail
 
           export PATH="/usr/bin:${CLANG_DIR}/bin:${PATH}"
 
-          BUILD_START=$(date +%s)
           TC_DIR="${CLANG_DIR}/bin"
-          DEFCONFIG="Noobie_SU_defconfig"
+          DEFCONFIG="${{ inputs.defconfig }}"
+          LOCALVERSION="${{ inputs.localversion }}"
 
-          echo "[*] Kernel: NoobieKernelRE"
           echo "[*] Defconfig: ${DEFCONFIG}"
-          echo "[*] Clang: $(${TC_DIR}/clang --version | head -n1)"
+          echo "[*] Localversion: ${LOCALVERSION}"
 
           make \
             O=out \
@@ -75,8 +103,52 @@ jobs:
             CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
             "${DEFCONFIG}"
 
+          if [ -n "${LOCALVERSION}" ]; then
+            sed -i '/^CONFIG_LOCALVERSION=/d' out/.config
+            echo "CONFIG_LOCALVERSION=\"${LOCALVERSION}\"" >> out/.config
+          fi
+
+          echo "[✓] Kernel configured."
+
+      - name: Integrate ReSukiSU / KernelSU
+        if: ${{ inputs['resukisu/kernelsu Integration'] == 'enabled' }}
+        uses: ./.github/actions/resuki
+        with:
+          ref: main
+
+      - name: Verify ReSukiSU / KernelSU integration
+        if: ${{ inputs['resukisu/kernelsu Integration'] == 'enabled' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -d KernelSU/kernel || { echo "[!] KernelSU/kernel not found"; exit 1; }
+          test -L drivers/kernelsu || { echo "[!] drivers/kernelsu symlink not found"; exit 1; }
+          grep -q '^CONFIG_KSU=y' out/.config || { echo "[!] CONFIG_KSU=y not enabled"; exit 1; }
+
+          echo "[✓] ReSukiSU / KernelSU integration verified."
+
+      - name: Build kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export PATH="/usr/bin:${CLANG_DIR}/bin:${PATH}"
+
+          BUILD_START=$(date +%s)
+          TC_DIR="${CLANG_DIR}/bin"
           JOBS=$(nproc --all)
+
+          echo "[*] Kernel: NoobieKernelRE"
+          echo "[*] ReSukiSU/KernelSU: ${{ inputs['resukisu/kernelsu Integration'] }}"
+          echo "[*] NoMount: ${{ inputs.enable_nomount }}"
+          echo "[*] Clang: $(${TC_DIR}/clang --version | head -n1)"
           echo "[*] Building with ${JOBS} threads..."
+
+          if [ "${{ inputs.enable_nomount }}" = "true" ]; then
+            echo "[!] NoMount was requested (ref: ${{ inputs.nomount_ref }}), but no NoMount action is available at the requested path."
+            echo "[!] Build will continue without NoMount integration."
+          fi
 
           make \
             O=out \
