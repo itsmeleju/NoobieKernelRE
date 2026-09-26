@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       defconfig:
-        description: Kernel defconfig
+        description: Kernel defconfig under arch/arm64/configs/
         required: true
         default: Noobie_SU_defconfig
         type: string
 
-      resukisu:
-        description: ReSukiSU / KernelSU integration
+      "resukisu/kernelsu Integration":
+        description: Enable ReSukiSU / KernelSU integration
         required: true
         default: enabled
         type: choice
@@ -18,26 +18,26 @@ on:
           - enabled
           - disabled
 
-      gpu_driver:
-        description: GPU driver version
+      nomount_ref:
+        description: NoMount branch/tag/commit
+        required: false
+        default: v2.0.0
+        type: string
+
+      enable_nomount:
+        description: Integrate and enable NoMount
+        required: false
+        default: false
+        type: boolean
+
+      "GPU driver version":
+        description: GPU driver update under defconfig
         required: true
         default: r25p
         type: choice
         options:
           - r25p
           - r32p
-
-      enable_nomount:
-        description: Enable NoMount
-        required: true
-        default: false
-        type: boolean
-
-      nomount_ref:
-        description: NoMount version / branch / tag
-        required: true
-        default: v2.0.0
-        type: string
 
       localversion:
         description: Kernel LOCALVERSION suffix
@@ -48,30 +48,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - name: Test workflow
-        run: |
-          echo "Workflow dispatch works."
-          echo "Defconfig: ${{ inputs.defconfig }}"
-          echo "GPU: ${{ inputs.gpu_driver }}"
-          echo "ReSukiSU: ${{ inputs.resukisu }}"
 
     steps:
 
-      # ============================================================
-      # CHECKOUT
-      # ============================================================
-
-      - name: Checkout kernel
+      - name: Checkout NoobieKernelRE
         uses: actions/checkout@v4
         with:
           repository: itsmeleju/NoobieKernelRE
           fetch-depth: 1
           submodules: recursive
-
-      # ============================================================
-      # INITIALIZE LOG
-      # ============================================================
 
       - name: Initialize build log
         shell: bash
