@@ -184,9 +184,6 @@ jobs:
             echo "LLVM READELF:"
             "${TC_DIR}/llvm-readelf" --version
             echo
-            echo "LLVM SIZE:"
-            "${TC_DIR}/llvm-size" --version
-            echo
             echo "============================================================"
             echo " Host tools"
             echo "============================================================"
@@ -258,7 +255,6 @@ jobs:
             OBJDUMP="${TC_DIR}/llvm-objdump" \
             STRIP="${TC_DIR}/llvm-strip" \
             READELF="${TC_DIR}/llvm-readelf" \
-            OBJSIZE="${TC_DIR}/llvm-size" \
             LLVM_AR="${TC_DIR}/llvm-ar" \
             LLVM_DIS="${TC_DIR}/llvm-dis" \
             HOSTCC=/usr/bin/gcc \
