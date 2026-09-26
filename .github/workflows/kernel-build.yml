@@ -9,7 +9,7 @@ on:
         default: Noobie_SU_defconfig
         type: string
 
-      "resukisu/kernelsu Integration":
+      "resukisu":
         description: Enable ReSukiSU / KernelSU integration
         required: true
         default: enabled
@@ -30,7 +30,7 @@ on:
         default: false
         type: boolean
 
-      "GPU driver version":
+      "gpu_driver":
         description: GPU driver update under defconfig
         required: true
         default: r25p
