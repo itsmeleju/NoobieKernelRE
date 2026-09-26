@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       defconfig:
-        description: Kernel defconfig under arch/arm64/configs/
+        description: Kernel defconfig
         required: true
         default: Noobie_SU_defconfig
         type: string
 
-      resukisu_integration:
-        description: Enable ReSukiSU / KernelSU integration
+      resukisu:
+        description: Enable ReSukiSU
         required: true
         default: enabled
         type: choice
@@ -18,20 +18,8 @@ on:
           - enabled
           - disabled
 
-      nomount_ref:
-        description: NoMount branch/tag/commit
-        required: false
-        default: v2.0.0
-        type: string
-
-      enable_nomount:
-        description: Integrate and enable NoMount
-        required: false
-        default: false
-        type: boolean
-
       gpu_driver:
-        description: GPU driver version
+        description: GPU driver
         required: true
         default: r25p
         type: choice
@@ -39,8 +27,20 @@ on:
           - r25p
           - r32p
 
+      enable_nomount:
+        description: Enable NoMount
+        required: true
+        default: false
+        type: boolean
+
+      nomount_ref:
+        description: NoMount ref
+        required: false
+        default: v2.0.0
+        type: string
+
       localversion:
-        description: Kernel LOCALVERSION suffix
+        description: Kernel LOCALVERSION
         required: true
         default: -ver.1.03-GA
         type: string
@@ -49,675 +49,281 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        shell: bash
+
     steps:
 
-      - name: Checkout NoobieKernelRE
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          repository: itsmeleju/NoobieKernelRE
           fetch-depth: 1
           submodules: recursive
 
-      - name: Initialize build log
-        shell: bash
+      - name: Initialize log
         run: |
           : > build.log
+          echo "NoobieKernelRE build started"
+          echo "Commit: ${GITHUB_SHA}" | tee -a build.log
 
-          echo "============================================================" >> build.log
-          echo " NoobieKernelRE Build" >> build.log
-          echo "============================================================" >> build.log
-          echo "Repository : ${GITHUB_REPOSITORY}" >> build.log
-          echo "Commit     : ${GITHUB_SHA}" >> build.log
-          echo "Run        : ${GITHUB_RUN_NUMBER}" >> build.log
-          echo "Runner     : ${RUNNER_OS}" >> build.log
-          echo "Started    : $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> build.log
-          echo "============================================================" >> build.log
+      - name: Cache Clang
+        uses: actions/cache@v4
+        with:
+          path: clang/
+          key: ${{ runner.os }}-noobie-clang-v1
 
-      # ============================================================
-      # CLEAN RUNNER
-      # ============================================================
+      - name: Setup Clang
+        uses: ./.github/actions/setup-clang
 
-      - name: Cleanup runner
-        shell: bash
-        run: |
-          echo "" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo " Runner cleanup" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/.ghcup
-          sudo apt-get clean
-
-          echo "[OK] Runner cleanup completed." | tee -a build.log
-
-      # ============================================================
-      # DOWNLOAD CLANG 14.0.6
-      # ============================================================
-
-      - name: Download Clang 14.0.6
-        shell: bash
+      - name: Verify Clang
         run: |
           set -e
 
-          CLANG_URL="https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20260619-release/Clang-14.0.6-20260619.tar.gz"
+          test -n "${CLANG_DIR:-}"
+          test -x "${CLANG_DIR}/bin/clang"
+          test -x "${CLANG_DIR}/bin/ld.lld"
 
-          echo "" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo " Clang toolchain" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo "URL: ${CLANG_URL}" | tee -a build.log
+          export PATH="${CLANG_DIR}/bin:/usr/bin:${PATH}"
 
-          rm -rf clang clang.tar.gz
+          echo "Clang:"
+          clang --version | head -n 1
 
-          curl -L --fail --retry 3 \
-            "${CLANG_URL}" \
-            -o clang.tar.gz
-
-          mkdir -p clang
-
-          tar -xzf clang.tar.gz -C clang --strip-components=1
-
-          rm -f clang.tar.gz
-
-          test -x clang/bin/clang
-          test -x clang/bin/ld.lld
-          test -x clang/bin/llvm-ar
-          test -x clang/bin/llvm-nm
-          test -x clang/bin/llvm-objcopy
-          test -x clang/bin/llvm-objdump
-          test -x clang/bin/llvm-strip
-          test -x clang/bin/llvm-readelf
-
-          echo "[OK] Clang downloaded successfully." | tee -a build.log
-
-      # ============================================================
-      # TOOLCHAIN INFORMATION
-      # ============================================================
-
-      - name: Collect toolchain information
-        shell: bash
-        run: |
-          set -e
-
-          export PATH="${GITHUB_WORKSPACE}/clang/bin:${PATH}"
-
-          {
-            echo ""
-            echo "============================================================"
-            echo " Toolchain"
-            echo "============================================================"
-
-            echo "Clang:"
-            clang --version | head -n 4
-
-            echo ""
-            echo "LLD:"
-            ld.lld --version | head -n 2
-
-            echo ""
-            echo "LLVM AR:"
-            llvm-ar --version | head -n 2
-
-            echo ""
-            echo "LLVM NM:"
-            llvm-nm --version | head -n 2
-
-            echo ""
-            echo "LLVM OBJCOPY:"
-            llvm-objcopy --version | head -n 2
-
-            echo ""
-            echo "LLVM OBJDUMP:"
-            llvm-objdump --version | head -n 2
-
-            echo ""
-            echo "LLVM STRIP:"
-            llvm-strip --version | head -n 2
-
-            echo ""
-            echo "LLVM READELF:"
-            llvm-readelf --version | head -n 2
-
-            echo ""
-            echo "Host GCC:"
-            gcc --version | head -n 1
-
-            echo ""
-            echo "Host LD:"
-            ld --version | head -n 1
-
-            echo ""
-            echo "CPU threads:"
-            nproc --all
-
-            echo ""
-            echo "Memory:"
-            free -h
-
-            echo ""
-            echo "Disk:"
-            df -h /
-
-            echo "============================================================"
-          } | tee -a build.log
-
-      # ============================================================
-      # BUILD CONFIGURATION
-      # ============================================================
-
-      - name: Show build configuration
-        shell: bash
-        run: |
-          {
-            echo ""
-            echo "============================================================"
-            echo " Build configuration"
-            echo "============================================================"
-            echo "Defconfig    : ${{ inputs.defconfig }}"
-            echo "GPU driver   : ${{ inputs.gpu_driver }}"
-            echo "ReSukiSU     : ${{ inputs.resukisu_integration }}"
-            echo "NoMount      : ${{ inputs.enable_nomount }}"
-            echo "NoMount ref  : ${{ inputs.nomount_ref }}"
-            echo "Localversion : ${{ inputs.localversion }}"
-            echo "============================================================"
-          } | tee -a build.log
-
-      # ============================================================
-      # CHECK DEFCONFIG
-      # ============================================================
-
-      - name: Check defconfig
-        shell: bash
-        run: |
-          set -e
-
-          DEFCONFIG="arch/arm64/configs/${{ inputs.defconfig }}"
-
-          if [ ! -f "${DEFCONFIG}" ]; then
-            echo "[ERROR] Defconfig not found: ${DEFCONFIG}" | tee -a build.log
-            exit 1
-          fi
-
-          echo "[OK] Defconfig found: ${DEFCONFIG}" | tee -a build.log
-
-      # ============================================================
-      # INITIAL KERNEL CONFIGURATION
-      # ============================================================
+          echo "LLD:"
+          ld.lld --version | head -n 1
 
       - name: Configure kernel
-        shell: bash
         run: |
           set -e
 
-          export PATH="${GITHUB_WORKSPACE}/clang/bin:${PATH}"
+          export PATH="${CLANG_DIR}/bin:/usr/bin:${PATH}"
+
+          test -f "arch/arm64/configs/${{ inputs.defconfig }}"
 
           make \
             O=out \
             ARCH=arm64 \
-            SUBARCH=arm64 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CC="${GITHUB_WORKSPACE}/clang/bin/clang" \
-            LD="${GITHUB_WORKSPACE}/clang/bin/ld.lld" \
-            AR="${GITHUB_WORKSPACE}/clang/bin/llvm-ar" \
-            NM="${GITHUB_WORKSPACE}/clang/bin/llvm-nm" \
-            OBJCOPY="${GITHUB_WORKSPACE}/clang/bin/llvm-objcopy" \
-            OBJDUMP="${GITHUB_WORKSPACE}/clang/bin/llvm-objdump" \
-            STRIP="${GITHUB_WORKSPACE}/clang/bin/llvm-strip" \
-            READELF="${GITHUB_WORKSPACE}/clang/bin/llvm-readelf" \
             LLVM=1 \
             LLVM_IAS=0 \
-            HOSTCC=gcc \
-            HOSTCXX=g++ \
-            HOSTLD=ld \
-            HOSTAR=ar \
-            KCFLAGS="-w -pipe -O2 -Wno-error -Wno-error=incompatible-pointer-types" \
+            KCFLAGS="-O2 -w" \
             CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
             "${{ inputs.defconfig }}" \
             2>&1 | tee -a build.log
 
           sed -i '/^CONFIG_LOCALVERSION=/d' out/.config
-          echo 'CONFIG_LOCALVERSION="${{ inputs.localversion }}"' >> out/.config
 
-          echo "[OK] Kernel configured." | tee -a build.log
+          printf 'CONFIG_LOCALVERSION="%s"\n' \
+            '${{ inputs.localversion }}' >> out/.config
 
-      # ============================================================
-      # GPU CONFIGURATION
-      # ============================================================
-
-      - name: Configure GPU driver
-        shell: bash
+      - name: Configure GPU
         run: |
           set -e
 
           CONFIG="out/.config"
 
-          echo "" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo " GPU configuration" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-
           sed -i \
             '/^CONFIG_MTK_GPU_MALI_R25P=/d' \
-            "${CONFIG}"
+            "$CONFIG"
 
           sed -i \
             '/^# CONFIG_MTK_GPU_MALI_R25P is not set$/d' \
-            "${CONFIG}"
+            "$CONFIG"
 
           sed -i \
             '/^CONFIG_MTK_GPU_MALI_R32P=/d' \
-            "${CONFIG}"
+            "$CONFIG"
 
           sed -i \
             '/^# CONFIG_MTK_GPU_MALI_R32P is not set$/d' \
-            "${CONFIG}"
+            "$CONFIG"
 
           sed -i \
             '/^CONFIG_MTK_GPU_VERSION=/d' \
-            "${CONFIG}"
-
-          sed -i \
-            '/^# CONFIG_MTK_GPU_VERSION=/d' \
-            "${CONFIG}"
+            "$CONFIG"
 
           if [ "${{ inputs.gpu_driver }}" = "r32p" ]; then
-            cat >> "${CONFIG}" <<'EOF'
-# CONFIG_MTK_GPU_MALI_R25P is not set
-CONFIG_MTK_GPU_MALI_R32P=y
-CONFIG_MTK_GPU_VERSION="mali valhall r32p1"
-EOF
+
+            printf '%s\n' \
+              '# CONFIG_MTK_GPU_MALI_R25P is not set' \
+              'CONFIG_MTK_GPU_MALI_R32P=y' \
+              'CONFIG_MTK_GPU_VERSION="mali valhall r32p1"' \
+              >> "$CONFIG"
+
           else
-            cat >> "${CONFIG}" <<'EOF'
-CONFIG_MTK_GPU_MALI_R25P=y
-# CONFIG_MTK_GPU_MALI_R32P is not set
-CONFIG_MTK_GPU_VERSION="mali bifrost r25p0"
-EOF
+
+            printf '%s\n' \
+              'CONFIG_MTK_GPU_MALI_R25P=y' \
+              '# CONFIG_MTK_GPU_MALI_R32P is not set' \
+              'CONFIG_MTK_GPU_VERSION="mali bifrost r25p0"' \
+              >> "$CONFIG"
+
           fi
 
-          make \
-            O=out \
-            ARCH=arm64 \
-            olddefconfig \
+          make O=out ARCH=arm64 olddefconfig \
             2>&1 | tee -a build.log
 
-          echo "" | tee -a build.log
-          echo "Final GPU configuration:" | tee -a build.log
-
+          echo
+          echo "GPU configuration:"
           grep -E \
-            '^CONFIG_MTK_GPU_MALI_R25P=|^# CONFIG_MTK_GPU_MALI_R25P is not set|^CONFIG_MTK_GPU_MALI_R32P=|^# CONFIG_MTK_GPU_MALI_R32P is not set|^CONFIG_MTK_GPU_VERSION=' \
-            out/.config \
-            | tee -a build.log
-
-      # ============================================================
-      # RESUKISU
-      # ============================================================
+            'CONFIG_MTK_GPU_MALI_R25P|CONFIG_MTK_GPU_MALI_R32P|CONFIG_MTK_GPU_VERSION' \
+            out/.config | tee -a build.log
 
       - name: Integrate ReSukiSU
-        if: ${{ inputs.resukisu_integration == 'enabled' }}
+        if: ${{ inputs.resukisu == 'enabled' }}
         uses: ./.github/actions/resuki
         with:
           ref: main
 
-      # ============================================================
-      # VERIFY RESUKISU
-      # ============================================================
-
       - name: Verify ReSukiSU
-        if: ${{ inputs.resukisu_integration == 'enabled' }}
-        shell: bash
+        if: ${{ inputs.resukisu == 'enabled' }}
         run: |
           set -e
 
-          echo "" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo " ReSukiSU verification" | tee -a build.log
-          echo "============================================================" | tee -a build.log
+          test -d KernelSU/kernel
+          test -L drivers/kernelsu
+          grep -q '^CONFIG_KSU=y' out/.config
 
-          if [ ! -d "KernelSU/kernel" ]; then
-            echo "[ERROR] KernelSU/kernel not found." | tee -a build.log
-            exit 1
-          fi
+          echo "ReSukiSU verified" | tee -a build.log
 
-          if [ ! -L "drivers/kernelsu" ]; then
-            echo "[ERROR] drivers/kernelsu symlink not found." | tee -a build.log
-            exit 1
-          fi
-
-          if ! grep -q '^CONFIG_KSU=y' out/.config; then
-            echo "[ERROR] CONFIG_KSU=y is not enabled." | tee -a build.log
-            exit 1
-          fi
-
-          echo "[OK] ReSukiSU integration verified." | tee -a build.log
-
-      # ============================================================
-      # NOMOUNT INFORMATION
-      # ============================================================
-
-      - name: Configure NoMount
-        shell: bash
+      - name: Check NoMount
         run: |
           if [ "${{ inputs.enable_nomount }}" = "true" ]; then
-            echo "" | tee -a build.log
-            echo "[WARNING] NoMount requested." | tee -a build.log
-            echo "[WARNING] NoMount integration is not implemented in this workflow." | tee -a build.log
-            echo "[WARNING] Requested ref: ${{ inputs.nomount_ref }}" | tee -a build.log
+            echo "NoMount requested: ${{ inputs.nomount_ref }}" | tee -a build.log
+            echo "NoMount integration is not included yet." | tee -a build.log
           else
-            echo "[OK] NoMount disabled." | tee -a build.log
+            echo "NoMount disabled" | tee -a build.log
           fi
 
-      # ============================================================
-      # BUILD
-      # ============================================================
-
       - name: Build kernel
-        id: kernel_build
-        shell: bash
         run: |
           set -o pipefail
 
-          export PATH="${GITHUB_WORKSPACE}/clang/bin:${PATH}"
+          export PATH="${CLANG_DIR}/bin:/usr/bin:${PATH}"
 
-          JOBS="$(nproc --all)"
-          START_TIME="$(date +%s)"
-
-          echo "" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo " Kernel compilation" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo "Threads: ${JOBS}" | tee -a build.log
-          echo "Started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" | tee -a build.log
+          START=$(date +%s)
 
           make \
+            -j"$(nproc)" \
             O=out \
             ARCH=arm64 \
-            SUBARCH=arm64 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CC="${GITHUB_WORKSPACE}/clang/bin/clang" \
-            LD="${GITHUB_WORKSPACE}/clang/bin/ld.lld" \
-            AR="${GITHUB_WORKSPACE}/clang/bin/llvm-ar" \
-            NM="${GITHUB_WORKSPACE}/clang/bin/llvm-nm" \
-            OBJCOPY="${GITHUB_WORKSPACE}/clang/bin/llvm-objcopy" \
-            OBJDUMP="${GITHUB_WORKSPACE}/clang/bin/llvm-objdump" \
-            STRIP="${GITHUB_WORKSPACE}/clang/bin/llvm-strip" \
-            READELF="${GITHUB_WORKSPACE}/clang/bin/llvm-readelf" \
             LLVM=1 \
             LLVM_IAS=0 \
-            HOSTCC=gcc \
-            HOSTCXX=g++ \
-            HOSTLD=ld \
-            HOSTAR=ar \
-            KCFLAGS="-w -pipe -O2 -Wno-error -Wno-error=incompatible-pointer-types" \
+            KCFLAGS="-O2 -w" \
             CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-            -j"${JOBS}" \
             2>&1 | tee -a build.log
 
-          BUILD_STATUS="${PIPESTATUS[0]}"
+          END=$(date +%s)
 
-          END_TIME="$(date +%s)"
-          BUILD_DURATION="$((END_TIME - START_TIME))"
+          echo "BUILD_DURATION=$((END - START))" >> "$GITHUB_ENV"
+          echo "KERNEL_VERSION=$(make O=out ARCH=arm64 kernelversion)" \
+            >> "$GITHUB_ENV"
 
-          echo "BUILD_DURATION=${BUILD_DURATION}s" >> "${GITHUB_ENV}"
-
-          echo "" | tee -a build.log
-          echo "Build duration: ${BUILD_DURATION}s" | tee -a build.log
-
-          if [ "${BUILD_STATUS}" -ne 0 ]; then
-            echo "[ERROR] Kernel compilation failed." | tee -a build.log
-            exit "${BUILD_STATUS}"
-          fi
-
-          KERNEL_VERSION="$(make O=out ARCH=arm64 kernelversion)"
-
-          echo "KERNEL_VERSION=${KERNEL_VERSION}" >> "${GITHUB_ENV}"
-
-          echo "Kernel version: ${KERNEL_VERSION}" | tee -a build.log
-          echo "[OK] Kernel compilation completed." | tee -a build.log
-
-      # ============================================================
-      # VERIFY IMAGE
-      # ============================================================
-
-      - name: Verify kernel outputs
-        shell: bash
+      - name: Verify kernel
         run: |
           set -e
 
-          IMAGE="out/arch/arm64/boot/Image"
-          DTBO="out/arch/arm64/boot/dtbo.img"
+          test -s out/arch/arm64/boot/Image
+          test -s out/arch/arm64/boot/dtbo.img
 
-          echo "" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo " Output verification" | tee -a build.log
-          echo "============================================================" | tee -a build.log
+          SHA256=$(sha256sum \
+            out/arch/arm64/boot/Image | cut -d' ' -f1)
 
-          if [ ! -s "${IMAGE}" ]; then
-            echo "[ERROR] Image not found: ${IMAGE}" | tee -a build.log
-            exit 1
-          fi
+          echo "IMAGE_SHA256=$SHA256" >> "$GITHUB_ENV"
 
-          if [ ! -s "${DTBO}" ]; then
-            echo "[ERROR] DTBO not found: ${DTBO}" | tee -a build.log
-            exit 1
-          fi
-
-          IMAGE_SHA256="$(sha256sum "${IMAGE}" | awk '{print $1}')"
-
-          echo "IMAGE_SHA256=${IMAGE_SHA256}" >> "${GITHUB_ENV}"
-
-          echo "Image : $(du -h "${IMAGE}" | cut -f1)" | tee -a build.log
-          echo "DTBO  : $(du -h "${DTBO}" | cut -f1)" | tee -a build.log
-          echo "SHA256: ${IMAGE_SHA256}" | tee -a build.log
-          echo "[OK] Kernel outputs verified." | tee -a build.log
-
-      # ============================================================
-      # PREPARE ANYKERNEL3
-      # ============================================================
+          echo "Kernel Image verified"
+          echo "DTBO verified"
+          echo "SHA256: $SHA256" | tee -a build.log
 
       - name: Prepare AnyKernel3
-        shell: bash
         run: |
           set -e
 
-          if [ ! -d "AnyKernel3" ]; then
-            echo "[ERROR] AnyKernel3 directory not found." | tee -a build.log
-            exit 1
-          fi
+          test -d AnyKernel3
 
-          rm -f \
-            AnyKernel3/Image \
-            AnyKernel3/Image.* \
-            AnyKernel3/dtbo.img \
-            AnyKernel3/*.zip
+          cp \
+            out/arch/arm64/boot/Image \
+            AnyKernel3/Image
 
-          cp out/arch/arm64/boot/Image AnyKernel3/Image
-          cp out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
-
-          echo "[OK] AnyKernel3 prepared." | tee -a build.log
-
-      # ============================================================
-      # CREATE ZIP
-      # ============================================================
+          cp \
+            out/arch/arm64/boot/dtbo.img \
+            AnyKernel3/dtbo.img
 
       - name: Create kernel ZIP
-        shell: bash
         run: |
           set -e
 
-          BUILD_TIME="$(TZ=Asia/Kolkata date '+%d-%m-%H%M')"
-          KERNEL_ZIP="NoobieKernlRE_GA-${{ inputs.gpu_driver }}-${BUILD_TIME}.zip"
+          TIME=$(TZ=Asia/Kolkata date '+%d-%m-%H%M')
 
-          echo "" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo " Kernel package" | tee -a build.log
-          echo "============================================================" | tee -a build.log
-          echo "ZIP: ${KERNEL_ZIP}" | tee -a build.log
+          ZIP="NoobieKernlRE_GA-${{ inputs.gpu_driver }}-${TIME}.zip"
 
           cd AnyKernel3
 
-          zip -r9 "../${KERNEL_ZIP}" . \
-            -x "*.git*" \
-            -x "*.github*" \
-            -x "README.md" \
-            -x "*.zip" \
-            2>&1 | tee -a ../build.log
+          zip -r9 "../${ZIP}" . \
+            -x '*.git*' \
+            -x '*.github*' \
+            -x 'README.md' \
+            -x '*.zip'
 
           cd ..
 
-          if [ ! -s "${KERNEL_ZIP}" ]; then
-            echo "[ERROR] ZIP creation failed." | tee -a build.log
-            exit 1
-          fi
+          test -s "${ZIP}"
 
-          if ! unzip -l "${KERNEL_ZIP}" | grep -Eq '(^|[[:space:]])Image$'; then
-            echo "[ERROR] Image missing from ZIP." | tee -a build.log
-            exit 1
-          fi
+          SHA256=$(sha256sum "${ZIP}" | cut -d' ' -f1)
 
-          if ! unzip -l "${KERNEL_ZIP}" | grep -Eq '(^|[[:space:]])dtbo\.img$'; then
-            echo "[ERROR] dtbo.img missing from ZIP." | tee -a build.log
-            exit 1
-          fi
+          echo "KERNEL_ZIP=${ZIP}" >> "$GITHUB_ENV"
+          echo "KERNEL_ZIP_SHA256=${SHA256}" >> "$GITHUB_ENV"
 
-          KERNEL_ZIP_SHA256="$(sha256sum "${KERNEL_ZIP}" | awk '{print $1}')"
+          echo "Kernel ZIP: ${ZIP}" | tee -a build.log
+          echo "ZIP SHA256: ${SHA256}" | tee -a build.log
 
-          echo "KERNEL_ZIP=${KERNEL_ZIP}" >> "${GITHUB_ENV}"
-          echo "KERNEL_ZIP_SHA256=${KERNEL_ZIP_SHA256}" >> "${GITHUB_ENV}"
-
-          echo "" | tee -a build.log
-          echo "[OK] Kernel ZIP created successfully." | tee -a build.log
-          echo "ZIP SHA256: ${KERNEL_ZIP_SHA256}" | tee -a build.log
-
-      # ============================================================
-      # ERROR SUMMARY
-      # ============================================================
-
-      - name: Generate error summary
+      - name: Build summary
         if: ${{ always() }}
-        shell: bash
         run: |
           set +e
 
-          : > build-errors.txt
-
-          if [ -f build.log ]; then
-            grep -nEi \
-              'fatal error:|error:|llvm error:|ld\.lld: error:|undefined reference|collect2: error:|make\[[0-9]+\]: \*\*\*|make: \*\*\*' \
-              build.log \
-              > build-errors.txt || true
-          fi
-
-          ERROR_COUNT="$(wc -l < build-errors.txt | tr -d ' ')"
-
-          echo "" >> build.log
-          echo "============================================================" >> build.log
-          echo " Final build report" >> build.log
-          echo "============================================================" >> build.log
-          echo "Status       : ${{ job.status }}" >> build.log
-          echo "Errors found : ${ERROR_COUNT}" >> build.log
-          echo "GPU driver   : ${{ inputs.gpu_driver }}" >> build.log
-          echo "Defconfig    : ${{ inputs.defconfig }}" >> build.log
-          echo "ReSukiSU     : ${{ inputs.resukisu_integration }}" >> build.log
-          echo "NoMount      : ${{ inputs.enable_nomount }}" >> build.log
-          echo "Kernel ZIP   : ${KERNEL_ZIP:-not created}" >> build.log
-          echo "Finished     : $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> build.log
-          echo "============================================================" >> build.log
+          grep -nEi \
+            'error:|fatal error:|undefined reference|llvm error|make.*\*\*\*' \
+            build.log > build-errors.txt || true
 
           {
-            echo "# NoobieKernelRE Build"
-            echo ""
-            echo "## Configuration"
-            echo ""
+            echo "# NoobieKernelRE Build Report"
+            echo
             echo "| Item | Value |"
             echo "|---|---|"
             echo "| Status | ${{ job.status }} |"
             echo "| Defconfig | ${{ inputs.defconfig }} |"
             echo "| GPU | ${{ inputs.gpu_driver }} |"
-            echo "| ReSukiSU | ${{ inputs.resukisu_integration }} |"
+            echo "| ReSukiSU | ${{ inputs.resukisu }} |"
             echo "| NoMount | ${{ inputs.enable_nomount }} |"
-            echo "| NoMount ref | ${{ inputs.nomount_ref }} |"
             echo "| Kernel | ${KERNEL_VERSION:-unknown} |"
-            echo "| Duration | ${BUILD_DURATION:-unknown} |"
+            echo "| Duration | ${BUILD_DURATION:-unknown}s |"
             echo "| ZIP | ${KERNEL_ZIP:-not created} |"
-            echo "| Errors | ${ERROR_COUNT} |"
+            echo
 
-            echo ""
-            echo "## GPU configuration"
-            echo ""
-            echo '```text'
-
-            if [ -f out/.config ]; then
-              grep -E \
-                '^CONFIG_MTK_GPU_MALI_R25P=|^# CONFIG_MTK_GPU_MALI_R25P is not set|^CONFIG_MTK_GPU_MALI_R32P=|^# CONFIG_MTK_GPU_MALI_R32P is not set|^CONFIG_MTK_GPU_VERSION=' \
-                out/.config || true
-            fi
-
-            echo '```'
-
-            echo ""
             echo "## Errors"
-            echo ""
+            echo
 
-            if [ "${ERROR_COUNT}" -gt 0 ]; then
+            if [ -s build-errors.txt ]; then
               echo '```text'
               head -50 build-errors.txt
               echo '```'
             else
               echo "No compiler/linker errors detected."
             fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
-            echo ""
-            echo "## Package"
-
-            if [ -n "${KERNEL_ZIP:-}" ] && [ -f "${KERNEL_ZIP}" ]; then
-              echo ""
-              echo "✅ **Kernel ZIP created:**"
-              echo ""
-              echo "\`${KERNEL_ZIP}\`"
-              echo ""
-              echo "SHA256:"
-              echo ""
-              echo "\`${KERNEL_ZIP_SHA256:-unknown}\`"
-            else
-              echo ""
-              echo "❌ Kernel ZIP was not created."
-            fi
-
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-          if [ "${ERROR_COUNT}" -gt 0 ]; then
-            while IFS= read -r ERROR_LINE; do
-              echo "::error title=Kernel build error::${ERROR_LINE}"
-            done < <(head -50 build-errors.txt)
-          fi
-
-      # ============================================================
-      # UPLOAD COMPLETE LOG
-      # ============================================================
-
-      - name: Upload complete build log
+      - name: Upload build logs
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: NoobieKernelRE-build-log-${{ github.run_number }}
+          name: build-log-${{ github.run_number }}
           path: |
             build.log
             build-errors.txt
           if-no-files-found: warn
           retention-days: 30
 
-      # ============================================================
-      # UPLOAD KERNEL ZIP
-      # ============================================================
-
-      - name: Upload kernel ZIP
+      - name: Upload kernel
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
@@ -726,39 +332,29 @@ EOF
           if-no-files-found: error
           retention-days: 30
 
-      # ============================================================
-      # TELEGRAM SUCCESS
-      # ============================================================
-
-      - name: Telegram success report
+      - name: Telegram success
         if: ${{ success() }}
         continue-on-error: true
-        shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
         run: |
-          bash .github/scripts/telegram-report.sh \
-            success \
+          bash .github/scripts/telegram-report.sh success \
             "${KERNEL_ZIP:-}" \
             "${KERNEL_VERSION:-unknown}" \
             "${BUILD_DURATION:-unknown}" \
             "${IMAGE_SHA256:-unknown}"
 
-      # ============================================================
-      # TELEGRAM FAILURE
-      # ============================================================
-
-      - name: Telegram failure report
+      - name: Telegram failure
         if: ${{ failure() }}
         continue-on-error: true
-        shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
         run: |
-          bash .github/scripts/telegram-report.sh \
-            failure \
+          bash .github/scripts/telegram-report.sh failure \
             "${KERNEL_ZIP:-}" \
             "${KERNEL_VERSION:-unknown}" \
             "${BUILD_DURATION:-unknown}" \
