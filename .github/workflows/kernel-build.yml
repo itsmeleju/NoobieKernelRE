@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       defconfig:
-        description: Kernel defconfig under arch/arm64/configs/
+        description: Kernel defconfig
         required: true
         default: Noobie_SU_defconfig
         type: string
@@ -29,13 +29,13 @@ on:
 
       enable_nomount:
         description: Enable NoMount
-        required: false
+        required: true
         default: false
         type: boolean
 
       nomount_ref:
         description: NoMount version / branch / tag
-        required: false
+        required: true
         default: v2.0.0
         type: string
 
@@ -47,8 +47,14 @@ on:
 
 jobs:
   build:
-    name: Build A32F (${{ inputs.gpu_driver }})
     runs-on: ubuntu-latest
+    steps:
+      - name: Test workflow
+        run: |
+          echo "Workflow dispatch works."
+          echo "Defconfig: ${{ inputs.defconfig }}"
+          echo "GPU: ${{ inputs.gpu_driver }}"
+          echo "ReSukiSU: ${{ inputs.resukisu }}"
 
     steps:
 
