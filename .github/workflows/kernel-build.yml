@@ -895,8 +895,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
         run: |
-          set -euo pipefail
-
           bash .github/scripts/telegram-report.sh success \
             "${KERNEL_ZIP:-}" \
             "${KERNEL_VERSION:-unknown}" \
@@ -916,8 +914,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
         run: |
-          set -euo pipefail
-
           bash .github/scripts/telegram-report.sh failure \
             "${KERNEL_ZIP:-}" \
             "${KERNEL_VERSION:-unknown}" \
