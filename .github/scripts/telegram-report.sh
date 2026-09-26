@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -u
 
 STATUS="${1:-failure}"
 ZIP_NAME="${2:-}"
@@ -11,12 +11,19 @@ BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 THREAD_ID="${TELEGRAM_MESSAGE_THREAD_ID:-}"
 
+# ---------------------------------------------------------
+# Telegram disabled / not configured
+# ---------------------------------------------------------
+
 if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" ]]; then
-    echo "Telegram integration not configured; skipping."
+    echo "[Telegram] Not configured. Skipping."
     exit 0
 fi
 
-# Extra runtime masking
+# ---------------------------------------------------------
+# Mask secrets in GitHub Actions
+# ---------------------------------------------------------
+
 echo "::add-mask::${BOT_TOKEN}"
 echo "::add-mask::${CHAT_ID}"
 
@@ -28,36 +35,57 @@ API="https://api.telegram.org/bot${BOT_TOKEN}"
 
 REPO="${GITHUB_REPOSITORY:-unknown}"
 RUN_ID="${GITHUB_RUN_ID:-0}"
+
 RUN_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
 
+# ---------------------------------------------------------
+# Send Telegram message
+# ---------------------------------------------------------
+
 send_message() {
-    local text="$1"
+    local message="$1"
 
     local args=(
         -sS
         --fail
-        --request POST
+        --connect-timeout 10
+        --max-time 30
+        -X POST
         "${API}/sendMessage"
         --data-urlencode "chat_id=${CHAT_ID}"
-        --data-urlencode "text=${text}"
+        --data-urlencode "text=${message}"
     )
 
     if [[ -n "$THREAD_ID" ]]; then
         args+=(--data-urlencode "message_thread_id=${THREAD_ID}")
     fi
 
-    curl "${args[@]}" >/dev/null
+    if ! curl "${args[@]}" >/dev/null; then
+        echo "[Telegram] Failed to send message."
+        return 1
+    fi
+
+    return 0
 }
 
-send_document() {
+# ---------------------------------------------------------
+# Send file
+# ---------------------------------------------------------
+
+send_file() {
     local file="$1"
 
-    [[ -f "$file" ]] || return 0
+    [[ -f "$file" ]] || {
+        echo "[Telegram] File not found: ${file}"
+        return 0
+    }
 
     local args=(
         -sS
         --fail
-        --request POST
+        --connect-timeout 10
+        --max-time 120
+        -X POST
         "${API}/sendDocument"
         -F "chat_id=${CHAT_ID}"
         -F "document=@${file}"
@@ -67,44 +95,82 @@ send_document() {
         args+=(-F "message_thread_id=${THREAD_ID}")
     fi
 
-    curl "${args[@]}" >/dev/null
+    if ! curl "${args[@]}" >/dev/null; then
+        echo "[Telegram] Failed to send file."
+        return 1
+    fi
+
+    return 0
 }
+
+# ---------------------------------------------------------
+# Check bot token
+# ---------------------------------------------------------
+
+if ! curl -sS --fail --connect-timeout 10 --max-time 20 \
+    "${API}/getMe" >/dev/null; then
+
+    echo "[Telegram] Bot token is invalid or Telegram API is unavailable."
+    exit 0
+fi
+
+# ---------------------------------------------------------
+# SUCCESS
+# ---------------------------------------------------------
 
 if [[ "$STATUS" == "success" ]]; then
 
-    TEXT="✅ Kernel build succeeded
+    MESSAGE="✅ NoobieKernelRE build succeeded
 
-Repository: ${REPO}
 Kernel: ${KERNEL_VERSION}
+GPU/package: ${ZIP_NAME}
 Duration: ${BUILD_DURATION}
-Package: ${ZIP_NAME}
 Image SHA256: ${IMAGE_SHA256}
-Run: ${RUN_URL}"
 
-    send_message "$TEXT"
+Repository:
+${REPO}
 
-    if [[ -n "$ZIP_NAME" && -f "out/$ZIP_NAME" ]]; then
-        send_document "out/$ZIP_NAME"
+Build:
+${RUN_URL}"
+
+    send_message "$MESSAGE" || true
+
+    if [[ -n "$ZIP_NAME" && -f "$ZIP_NAME" ]]; then
+        send_file "$ZIP_NAME" || true
     fi
+
+# ---------------------------------------------------------
+# FAILURE
+# ---------------------------------------------------------
 
 else
 
-    TEXT="❌ Kernel build failed
+    MESSAGE="❌ NoobieKernelRE build failed
 
-Repository: ${REPO}
 Kernel: ${KERNEL_VERSION}
-Run: ${RUN_URL}
+Duration: ${BUILD_DURATION}
 
-The CI artifact contains build.log and error-summary.txt."
+Repository:
+${REPO}
 
-    send_message "$TEXT"
+Build:
+${RUN_URL}
 
-    if [[ -f "out/ci-logs/error-summary.txt" ]]; then
-        gzip -c \
-            "out/ci-logs/error-summary.txt" \
-            > "out/ci-logs/error-summary.txt.gz"
+The complete build log is attached."
 
-        send_document "out/ci-logs/error-summary.txt.gz"
+    send_message "$MESSAGE" || true
+
+    # Complete build log
+    if [[ -f "build.log" ]]; then
+        send_file "build.log" || true
+    fi
+
+    # Error summary
+    if [[ -f "build-errors.txt" ]]; then
+        send_file "build-errors.txt" || true
     fi
 
 fi
+
+echo "[Telegram] Report completed."
+exit 0
