@@ -1,0 +1,48 @@
+name: 'Setup Clang & Environment'
+description: 'Installs dependencies and prepares Neutron/ZyC Clang'
+runs:
+  using: "composite"
+  steps:
+    - name: 🧰 Install Build Dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+          build-essential bc bison flex curl wget zip unzip \
+          libssl-dev libelf-dev python3 git libncurses5-dev \
+          ca-certificates binutils-aarch64-linux-gnu \
+          binutils-arm-linux-gnueabi gcc g++ make zstd jq
+
+    - name: ⚡ Download / Verify Neutron Clang
+      shell: bash
+      run: |
+        mkdir -p clang
+
+        if [ ! -f "clang/bin/clang" ]; then
+          echo "[*] Cache missed. Downloading fresh Neutron Clang prebuilts..."
+          
+          RELEASE_JSON=$(curl -sL https://api.github.com/repos/Neutron-Toolchains/clang-build-catalogue/releases/latest)
+          ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".tar.zst")) | .browser_download_url' | head -n1)
+
+          if [ -n "$ASSET_URL" ] && [ "$ASSET_URL" != "null" ]; then
+            wget -q --show-progress --tries=3 "$ASSET_URL" -O clang.tar.zst
+            tar -I zstd -xf clang.tar.zst -C clang --strip-components=1
+            rm -f clang.tar.zst
+          else
+            echo "[!] Neutron Clang fetch failed, using ZyC Clang fallback..."
+            ZYC_JSON=$(curl -sL https://api.github.com/repos/ZyCromerZ/Clang/releases/latest)
+            ASSET_URL=$(echo "$ZYC_JSON" | jq -r '.assets[] | select(.name | test("aarch64") and endswith(".tar.gz")) | .browser_download_url' | head -n1)
+            
+            wget -q --show-progress --tries=3 "$ASSET_URL" -O clang.tar.gz
+            tar -xf clang.tar.gz -C clang --strip-components=1
+            rm -f clang.tar.gz
+          fi
+        else
+          echo "[*] Toolchain loaded directly from GitHub Cache!"
+        fi
+
+        echo "[*] Active Clang Compiler:"
+        clang/bin/clang --version | head -n1
+
+        echo "CLANG_DIR=${GITHUB_WORKSPACE}/clang" >> $GITHUB_ENV
+        echo "${GITHUB_WORKSPACE}/clang/bin" >> $GITHUB_PATH
