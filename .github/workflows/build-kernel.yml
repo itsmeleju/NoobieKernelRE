@@ -162,7 +162,8 @@ jobs:
             ld.lld --version | sed -n '1p'
             echo
 
-            echo "[2/5] Defconfig"
+                        echo "[2/5] Defconfig"
+
             make O=out \
               ARCH="$ARCH" \
               LLVM=1 \
@@ -172,10 +173,14 @@ jobs:
               CROSS_COMPILE_COMPAT="$CROSS_COMPILE_COMPAT" \
               CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
               "$DEFCONFIG"
-            echo
 
+            echo
+            echo "Initial MODVERSIONS state:"
+            grep -nE '^(CONFIG_MODVERSIONS=|# CONFIG_MODVERSIONS is not set)' out/.config || true
+
+            echo
             echo "[3/5] Compatibility/stability configuration"
-            test -f scripts/config || { echo "::error::scripts/config missing"; exit 1; }
+
             scripts/config --file out/.config --enable SECTION_MISMATCH_WARN_ONLY
             scripts/config --file out/.config --enable KALLSYMS
             scripts/config --file out/.config --enable KALLSYMS_ALL
@@ -189,14 +194,21 @@ jobs:
               echo "::warning::No NoMount Kconfig symbol detected; leaving CONFIG_NOMOUNT unchanged."
             fi
 
-            # Avoid the legacy 4.14 __crc_* relocation path with LLD.
             scripts/config --file out/.config --disable MODVERSIONS
-            if grep -q '^CONFIG_MODULE_REL_CRCS=' out/.config; then
-              scripts/config --file out/.config --disable MODULE_REL_CRCS
+            scripts/config --file out/.config --disable MODULE_REL_CRCS
+
+            echo
+            echo "MODVERSIONS state before olddefconfig:"
+            grep -nE '^(CONFIG_MODVERSIONS=|# CONFIG_MODVERSIONS is not set)' out/.config || true
+
+            if grep -q '^CONFIG_MODVERSIONS=y$' out/.config; then
+              echo "::error::scripts/config failed to disable CONFIG_MODVERSIONS"
+              exit 1
             fi
 
             echo
             echo "[4/5] Normalize config"
+
             make O=out \
               ARCH="$ARCH" \
               LLVM=1 \
@@ -206,37 +218,46 @@ jobs:
               CROSS_COMPILE_COMPAT="$CROSS_COMPILE_COMPAT" \
               CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
               olddefconfig
-            echo
 
+            echo
             echo "[5/5] Final config checks"
+
+            if grep -q '^CONFIG_MODVERSIONS=y$' out/.config; then
+              echo "::error::CONFIG_MODVERSIONS was re-enabled by Kconfig."
+              grep -nE '^(CONFIG_(MODULES|MODVERSIONS|MODULE_REL_CRCS)=|# CONFIG_(MODVERSIONS|MODULE_REL_CRCS) is not set)' out/.config || true
+              exit 1
+            fi
+
+            if grep -q '^CONFIG_MODULE_REL_CRCS=y$' out/.config; then
+              echo "::error::CONFIG_MODULE_REL_CRCS is enabled."
+              exit 1
+            fi
+
+            echo "CONFIG_MODVERSIONS:"
+            grep -E '^CONFIG_MODVERSIONS=|^# CONFIG_MODVERSIONS is not set$' out/.config || true
+
+            echo "CONFIG_MODULE_REL_CRCS:"
+            grep -E '^CONFIG_MODULE_REL_CRCS=|^# CONFIG_MODULE_REL_CRCS is not set$' out/.config || true
+
+            echo "CONFIG_KSU_MANUAL_HOOK:"
+            grep -E '^CONFIG_KSU_MANUAL_HOOK=|^# CONFIG_KSU_MANUAL_HOOK is not set$' out/.config || true
+
+            echo "CONFIG_NOMOUNT:"
+            grep -E '^CONFIG_NOMOUNT=|^# CONFIG_NOMOUNT is not set$' out/.config || true
+
             required=(
               '^CONFIG_SECTION_MISMATCH_WARN_ONLY=y$'
               '^CONFIG_KALLSYMS=y$'
               '^CONFIG_KALLSYMS_ALL=y$'
               '^CONFIG_KSU=y$'
             )
-            for pattern in "${required[@]}"; do
-              grep -qE "$pattern" out/.config || { echo "::error::Required config missing after olddefconfig: $pattern"; exit 1; }
-            done
-            echo "CONFIG_MODVERSIONS=$(grep -E '^CONFIG_MODVERSIONS=' out/.config || echo 'not set')"
-            echo "CONFIG_KSU_MANUAL_HOOK=$(grep -E '^CONFIG_KSU_MANUAL_HOOK=' out/.config || echo 'not set')"
-            echo "CONFIG_NOMOUNT=$(grep -E '^CONFIG_NOMOUNT=' out/.config || echo 'not set')"
-            if grep -q '^CONFIG_MODVERSIONS=y$' out/.config; then
-              echo "::error::CONFIG_MODVERSIONS unexpectedly enabled after olddefconfig."
-              exit 1
-            fi
-            echo
-            echo "--- Effective build variables ---"
-            env | grep -E '^(ARCH|SUBARCH|LLVM|CROSS_COMPILE|KCFLAGS|KBUILD_|LOCALVERSION|TZ)=' | sort
-          } 2>&1 | tee "$LOG"
 
-          git_hash="$(git rev-parse --short HEAD)"
-          commit_ts="$(git show -s --format=%ct HEAD)"
-          build_ts="$(date -u -d "@$commit_ts" '+%Y-%m-%d %H:%M:%S UTC')"
-          {
-            echo "CONFIG_GIT_HASH=$git_hash"
-            echo "CONFIG_BUILD_TIMESTAMP=$build_ts"
-          } >> "$GITHUB_ENV"
+            for pattern in "${required[@]}"; do
+              grep -qE "$pattern" out/.config || {
+                echo "::error::Required config missing: $pattern"
+                exit 1
+              }
+            done
 
       - name: Export build flags
         shell: bash
