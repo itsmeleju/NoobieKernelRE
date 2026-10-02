@@ -1,19 +1,18 @@
 ### AnyKernel3 Ramdisk Mod Script
-## osm0sis @ xda-developers
+## Specialthanks2 @ Mertşan aka vigus
 
 ### AnyKernel setup
 # global properties
 properties() { '
-kernel.string=Kernel Made By SlamZDank
+kernel.string="NoobieKernelRE"
 do.devicecheck=1
 do.modules=0
 do.systemless=1
 do.cleanup=1
 do.cleanuponabort=0
 device.name1=a32
+device.name2=SM-A325F
 device.name3=SM-A325M
-device.name4=SM-A325F
-device.name5=SM-A325M
 supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
@@ -30,7 +29,7 @@ set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
 # boot shell variables
 BLOCK=/dev/block/by-name/boot;
 IS_SLOT_DEVICE=0;
-RAMDISK_COMPRESSION=auto;
+RAMDISK_COMPRESSION=lz4-l;
 PATCH_VBMETA_FLAG=auto;
 
 # import functions/variables and setup patching - see for reference (DO NOT REMOVE)

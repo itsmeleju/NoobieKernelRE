@@ -1,2 +1,4 @@
 out/
+out_testing/
 toolchain/
+build_noobie.sh

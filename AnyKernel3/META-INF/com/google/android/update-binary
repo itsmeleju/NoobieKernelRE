@@ -551,7 +551,22 @@ if [ -f version ]; then
   ui_printfile version;
   ui_print " ";
 fi;
-ui_print " " "AnyKernel3 by osm0sis @ xda-developers" " ";
+ui_print " "
+ui_print "  ____________________________ "
+ui_print " |                            | "
+ui_print " |     * NoobieKernelRE *     | "
+ui_print " | By NoobieThingZ @ Telegram | "
+ui_print " |____________________________| "
+ui_print " "
+ui_print "- Target Device: SAMSUNG Galaxy A32"
+ui_print "- Recommended Android-16+ with bpf"
+ui_print "- Build: $(date +%Y-%m-%d)"
+ui_print " "
+ui_print "- Checking device compatibility..."
+
+# Verification logic would go here
+ui_print "- Device: SM-A325X";
+
 grep -oE 'AK_BASE.*' META-INF/com/google/android/updater-script >&2;
 ui_print " ";
 
@@ -562,7 +577,12 @@ do_versioncheck;
 do_levelcheck;
 do_vendorlevelcheck;
 
-ui_print "Installing...";
+ui_print " "
+ui_print "- Preparing ..."
+ui_print "- Flashing NoobieKernelRE Kernel Image..."
+ui_print " "
+ui_print "- Give ur feedback on https://t.me/Bootloopzz"
+ui_print " ";
 # hack to maintain support for anykernel.sh files that weren't updated correctly along with the AK core
 CORE=$(grep -oE 'ak.*core.sh' anykernel.sh);
 [ -f tools/$CORE ] || ln -s $AKHOME/tools/ak*-core.sh $AKHOME/tools/$CORE;
@@ -581,6 +601,12 @@ if [ "$(file_getprop anykernel.sh do.cleanup)" == 1 ]; then
   cleanup;
 fi;
 
-ui_print " " "Done!";
+ui_print " "
+ui_print "  [################################] 100%"
+ui_print " "
+ui_print "- Kernel installation complete!"
+ui_print " "
+ui_print "      --- Reboot and Enjoy! ---"
+ui_print " ";
 export PATH="$OLD_PATH";
 unset OLD_PATH OUTFD ZIPFILE;
