@@ -18,12 +18,6 @@ on:
           - enabled
           - disabled
 
-      nomount_ref:
-        description: NoMount branch/tag/commit
-        required: false
-        default: v2.0.0
-        type: string
-
       enable_nomount:
         description: Integrate and enable NoMount
         required: false
@@ -113,6 +107,10 @@ jobs:
         uses: ./.github/actions/resuki
         with:
           ref: main
+          
+      - name: Integrate NoMount
+        if: ${{ inputs.enable_nomount == true }}
+        uses: ./.github/actions/no-mount
 
       - name: Configure kernel
         shell: bash
