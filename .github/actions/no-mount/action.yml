@@ -1,38 +1,90 @@
-name: Integrate NoMount
-description: Update and integrate NoMount into the kernel VFS tree.
-inputs:
-  ref:
-    description: NoMount branch, tag, or commit. v2.0.0 is the reproducible stable default.
-    required: false
-    default: v2.0.0
-  enable:
-    description: Enable CONFIG_NOMOUNT when available.
-    required: false
-    default: true
+name: 'Integrate NoMount'
+description: 'Clones/syncs NoMount, runs kernel setup.sh, and verifies integration'
+
 runs:
-  using: composite
+  using: 'composite'
   steps:
     - name: Integrate NoMount
       shell: bash
       run: |
         set -euo pipefail
-        test -d fs || { echo "::error::Kernel tree root expected; fs/ not found."; exit 1; }
+        echo "=========================================="
+        echo "🚀 Starting NoMount Integration..."
+        echo "=========================================="
 
-        curl -LSfsS --retry 5 --retry-all-errors \
-          "https://raw.githubusercontent.com/maxsteeel/nomount/dev/kernel/setup.sh" \
-          -o "$RUNNER_TEMP/nomount-setup.sh"
-        chmod +x "$RUNNER_TEMP/nomount-setup.sh"
-
-        echo "[NoMount] Integrating ref: ${{ inputs.ref }}"
-        bash "$RUNNER_TEMP/nomount-setup.sh" "${{ inputs.ref }}"
-
-        test -L fs/nomount || { echo "::error::NoMount integration did not create fs/nomount symlink"; exit 1; }
-        test -f fs/nomount/Kconfig || { echo "::error::NoMount Kconfig not found after integration"; exit 1; }
-
-        if [[ "${{ inputs.enable }}" == 'true' ]]; then
-          test -f scripts/config || { echo "::error::scripts/config is missing"; exit 1; }
-          scripts/config --file out/.config --enable NOMOUNT 2>/dev/null || true
+        # 1. Sync & update submodule or clone as fallback
+        git submodule sync --recursive || true
+        if [ -d "NoMount" ]; then
+          echo "📂 Updating existing NoMount directory..."
+          git submodule update --init --depth 1 NoMount || git clone https://github.com/maxsteeel/nomount NoMount
+        else
+          echo "📥 Cloning NoMount repository..."
+          git clone https://github.com/maxsteeel/nomount NoMount
         fi
 
-        echo "[NoMount] Source: $(git -C NoMount rev-parse HEAD)"
-        echo "[NoMount] Integrated successfully."
+        # 2. Fetch origin and reset to master
+        cd NoMount
+        git fetch --tags --prune --force origin '+refs/heads/*:refs/remotes/origin/*' || true
+        git checkout -B master origin/master || true
+        git reset --hard origin/master || true
+        echo "📌 NoMount Commit: $(git rev-parse --short HEAD)"
+        cd ..
+
+        # 3. Run upstream setup.sh to update fs/Kconfig, fs/Makefile, and fs/nomount
+        echo "⚙️ Running NoMount setup script..."
+        if [ -f "NoMount/kernel/setup.sh" ]; then
+          bash NoMount/kernel/setup.sh
+        else
+          curl -sSL https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/master/kernel/setup.sh | bash -
+        fi
+
+    - name: Verify NoMount Integration
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "=========================================="
+        echo "🔍 Verifying NoMount Integration..."
+        echo "=========================================="
+
+        ERRORS=0
+
+        # Check 1: Directory exists
+        if [ -d "NoMount" ]; then
+          echo "✅ NoMount repository directory exists."
+        else
+          echo "❌ Missing NoMount directory!"
+          ERRORS=$((ERRORS + 1))
+        fi
+
+        # Check 2: Symlink or directory in fs/
+        if [ -e "fs/nomount" ]; then
+          echo "✅ Target 'fs/nomount' exists."
+        else
+          echo "❌ Missing 'fs/nomount'!"
+          ERRORS=$((ERRORS + 1))
+        fi
+
+        # Check 3: Entry in fs/Kconfig
+        if grep -q "nomount" fs/Kconfig; then
+          echo "✅ fs/Kconfig contains NoMount entry."
+        else
+          echo "❌ 'nomount' entry missing from fs/Kconfig!"
+          ERRORS=$((ERRORS + 1))
+        fi
+
+        # Check 4: Entry in fs/Makefile
+        if grep -q "nomount" fs/Makefile; then
+          echo "✅ fs/Makefile contains NoMount entry."
+        else
+          echo "❌ 'nomount' entry missing from fs/Makefile!"
+          ERRORS=$((ERRORS + 1))
+        fi
+
+        # Final Verdict
+        if [ "$ERRORS" -gt 0 ]; then
+          echo "❌ Verification failed with $ERRORS error(s)."
+          exit 1
+        fi
+
+        echo "🎉 NoMount successfully integrated and verified!"
+        echo "=========================================="
