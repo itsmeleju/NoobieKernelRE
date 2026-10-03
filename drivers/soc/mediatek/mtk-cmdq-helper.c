@@ -171,7 +171,7 @@ struct cmdq_client *cmdq_mbox_create(struct device *dev, int index)
 
 	client = kzalloc(sizeof(*client), GFP_KERNEL);
 	if (!client)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	client->client.dev = dev;
 	client->client.tx_block = false;
@@ -187,7 +187,7 @@ struct cmdq_client *cmdq_mbox_create(struct device *dev, int index)
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv) {
 		cmdq_mbox_destroy(client);
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 	}
 
 	priv->pool_limit = CMDQ_MBOX_BUF_LIMIT;
@@ -381,7 +381,7 @@ struct cmdq_pkt_buffer *cmdq_pkt_alloc_buf(struct cmdq_pkt *pkt)
 
 	buf = kzalloc(sizeof(*buf), GFP_KERNEL);
 	if (!buf)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	/* try dma pool if available */
 	if (pkt->cur_pool.pool)
@@ -407,7 +407,7 @@ struct cmdq_pkt_buffer *cmdq_pkt_alloc_buf(struct cmdq_pkt *pkt)
 	if (!buf->va_base) {
 		cmdq_err("allocate cmd buffer failed");
 		kfree(buf);
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 	}
 
 	list_add_tail(&buf->list_entry, &pkt->buf);
@@ -504,7 +504,7 @@ struct cmdq_pkt *cmdq_pkt_create(struct cmdq_client *client)
 
 	pkt = kzalloc(sizeof(*pkt), GFP_KERNEL);
 	if (!pkt)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 	INIT_LIST_HEAD(&pkt->buf);
 	init_completion(&pkt->cmplt);
 	pkt->cl = (void *)client;
@@ -581,7 +581,7 @@ dma_addr_t cmdq_pkt_get_curr_buf_pa(struct cmdq_pkt *pkt)
 
 	if (unlikely(!pkt->avail_buf_size))
 		if (cmdq_pkt_add_cmd_buffer(pkt) < 0)
-			return 0;
+			return -ENOMEM;
 
 	buf = list_last_entry(&pkt->buf, typeof(*buf), list_entry);
 
@@ -1525,7 +1525,7 @@ static struct cmdq_flush_item *cmdq_prepare_flush_tiem(struct cmdq_pkt *pkt)
 
 	item = kzalloc(sizeof(*item), GFP_KERNEL);
 	if (!item)
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 
 	pkt->flush_item = item;
 
