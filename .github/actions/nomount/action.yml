@@ -1,0 +1,91 @@
+name: Integrate NoMount
+description: Integrate NoMount into the kernel source tree
+
+inputs:
+  version:
+    description: NoMount branch, tag, or commit
+    required: false
+    default: v2.0.0
+
+runs:
+  using: composite
+  steps:
+    - name: Integrate NoMount
+      shell: bash
+      env:
+        NOMOUNT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        echo "============================================================"
+        echo " NoMount kernel integration"
+        echo "============================================================"
+
+        test -d fs || {
+          echo "::error::Kernel fs/ directory not found"
+          exit 1
+        }
+
+        test -f fs/Makefile || {
+          echo "::error::Kernel fs/Makefile not found"
+          exit 1
+        }
+
+        test -f fs/Kconfig || {
+          echo "::error::Kernel fs/Kconfig not found"
+          exit 1
+        }
+
+        echo "[NoMount] Version: ${NOMOUNT_VERSION}"
+        echo "[NoMount] Running upstream kernel setup script..."
+
+        curl -fL --retry 3 --retry-delay 2 \
+          "https://raw.githubusercontent.com/maxsteeel/nomount/master/kernel/setup.sh" \
+          -o /tmp/nomount-setup.sh
+
+        test -s /tmp/nomount-setup.sh || {
+          echo "::error::Failed to download NoMount setup.sh"
+          exit 1
+        }
+
+        sh /tmp/nomount-setup.sh "${NOMOUNT_VERSION}"
+
+        test -d NoMount || {
+          echo "::error::NoMount source directory was not created"
+          exit 1
+        }
+
+        test -d NoMount/kernel/src || {
+          echo "::error::NoMount kernel/src directory is missing"
+          exit 1
+        }
+
+        test -L fs/nomount || {
+          echo "::error::fs/nomount symlink was not created"
+          exit 1
+        }
+
+        test -e fs/nomount/Kconfig || {
+          echo "::error::NoMount Kconfig is missing"
+          exit 1
+        }
+
+        grep -q 'obj-$(CONFIG_NOMOUNT) += nomount/' fs/Makefile || {
+          echo "::error::NoMount fs/Makefile integration was not found"
+          exit 1
+        }
+
+        grep -q 'source "fs/nomount/Kconfig"' fs/Kconfig || {
+          echo "::error::NoMount fs/Kconfig integration was not found"
+          exit 1
+        }
+
+        NOMOUNT_COMMIT="$(git -C NoMount rev-parse HEAD)"
+        NOMOUNT_BRANCH="$(git -C NoMount branch --show-current || true)"
+
+        echo "[NoMount] Commit: ${NOMOUNT_COMMIT}"
+        echo "[NoMount] Branch: ${NOMOUNT_BRANCH:-detached}"
+        echo "[NoMount] Source: $(readlink -f fs/nomount)"
+        echo "[NoMount] Integration verified"
+
+        rm -f /tmp/nomount-setup.sh

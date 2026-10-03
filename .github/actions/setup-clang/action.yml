@@ -1,68 +1,49 @@
-name: 'Setup Clang & Environment'
-description: 'Installs dependencies and prepares ZyCromerZ Clang'
-
+name: Setup Clang
+description: Resolve, cache, install, and verify a kernel Clang toolchain.
+inputs:
+  toolchain:
+    description: ZyCromerZ or Neutron
+    required: true
+  version_clang:
+    description: Exact GitHub release/tag. Empty uses the action default.
+    required: false
+    default: ""
+outputs:
+  version:
+    description: Resolved toolchain release/tag
+    value: ${{ steps.setup.outputs.version }}
+  clang_path:
+    description: Selected Clang bin directory
+    value: ${{ steps.setup.outputs.clang_path }}
 runs:
-  using: "composite"
+  using: composite
   steps:
-    - name: 🧰 Install Build Dependencies
-      shell: bash
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y --no-install-recommends \
-          build-essential bc bison flex curl wget zip unzip \
-          libssl-dev libelf-dev python3 git libncurses5-dev \
-          ca-certificates binutils-aarch64-linux-gnu \
-          binutils-arm-linux-gnueabi gcc g++ make zstd xz-utils jq
-
-    - name: ⚡ Download / Verify ZyCromerZ Clang
+    - name: Cache ZyCromerZ default
+      if: ${{ inputs.version_clang == '' && inputs.toolchain == 'ZyCromerZ' }}
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/noobie-clang/ZyCromerZ/Clang-16.0.6-20260510-release
+        key: ${{ runner.os }}-kernel-clang-ZyCromerZ-Clang-16.0.6-20260510-release
+    - name: Cache Neutron default
+      if: ${{ inputs.version_clang == '' && inputs.toolchain == 'Neutron' }}
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/noobie-clang/Neutron/06092026
+        key: ${{ runner.os }}-kernel-clang-Neutron-06092026
+    - name: Cache selected release
+      if: ${{ inputs.version_clang != '' }}
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/noobie-clang/${{ inputs.toolchain }}/${{ inputs.version_clang }}
+        key: ${{ runner.os }}-kernel-clang-${{ inputs.toolchain }}-${{ inputs.version_clang }}
+    - name: Resolve and install Clang
+      id: setup
       shell: bash
       env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        VERSION_CLANG: ${{ inputs.version_clang }}
+        TOOLCHAIN_ROOT: ${{ runner.temp }}/noobie-clang
         GITHUB_TOKEN: ${{ github.token }}
       run: |
-        mkdir -p clang
-
-        if [ ! -f "clang/bin/clang" ]; then
-          echo "[*] Downloading fresh ZyCromerZ Clang prebuilts..."
-
-          # Fetch latest release info using GITHUB_TOKEN to avoid rate limits
-          ZYC_JSON=$(curl -sSL -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/repos/ZyCromerZ/Clang/releases/latest)
-
-          # Using .assets[]? to prevent jq crashes if assets is null
-          ASSET_URL=$(echo "$ZYC_JSON" | jq -r '.assets[]? | select(.name | test("Clang-.*\\.(tar\\.gz|tar\\.zst|tar\\.xz|tgz)")) | .browser_download_url' | head -n1)
-
-          # Fallback if API query yields no URL or fails
-          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
-            echo "[!] Dynamic URL query failed or rate-limited, using fallback release URL..."
-            ASSET_URL="https://github.com/ZyCromerZ/Clang/releases/download/18.1.8-20240722-release/Clang-18.1.8-20240722.tar.gz"
-          fi
-
-          echo "[*] Downloading from: $ASSET_URL"
-          wget -q --show-progress --tries=5 "$ASSET_URL" -O clang_archive
-
-          # Extract into temporary folder to handle directory wrapping cleanly
-          mkdir -p clang_tmp
-          tar -xf clang_archive -C clang_tmp
-
-          if [ -d "clang_tmp/bin" ]; then
-            cp -rn clang_tmp/* clang/
-          else
-            cp -rn clang_tmp/*/* clang/ 2>/devnull || cp -rn clang_tmp/* clang/
-          fi
-
-          rm -rf clang_tmp clang_archive
-        else
-          echo "[*] Toolchain loaded directly from GitHub Cache!"
-        fi
-
-        # Verify that binary exists
-        if [ ! -f "clang/bin/clang" ]; then
-          echo "[!] Error: Clang binary not found after extraction!"
-          exit 1
-        fi
-
-        echo "[*] Active Clang Compiler:"
-        clang/bin/clang --version | head -n1
-
-        echo "PYTHONUNBUFFERED=1" >> "$GITHUB_ENV"
-        echo "CLANG_DIR=${GITHUB_WORKSPACE}/clang" >> "$GITHUB_ENV"
-        echo "${GITHUB_WORKSPACE}/clang/bin" >> "$GITHUB_PATH"
+        set -euo pipefail
+        python3 "$GITHUB_ACTION_PATH/action.py"

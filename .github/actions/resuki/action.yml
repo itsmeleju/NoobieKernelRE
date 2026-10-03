@@ -1,39 +1,90 @@
 name: Integrate ReSukiSU
-description: Update and integrate ReSukiSU KernelSU into a legacy/non-GKI kernel tree.
-inputs:
-  ref:
-    description: ReSukiSU branch, tag, or commit to integrate.
-    required: false
-    default: main
-  enable-manual-hook:
-    description: Enable CONFIG_KSU_MANUAL_HOOK for old kernels such as 4.14.
-    required: false
-    default: true
+description: Integrate and verify ReSukiSU for the current non-GKI kernel tree.
 runs:
   using: composite
   steps:
-    - name: Integrate ReSukiSU
+    - name: Integrate and verify ReSukiSU
       shell: bash
       run: |
         set -euo pipefail
-        test -d drivers || { echo "::error::Kernel tree root expected; drivers/ not found."; exit 1; }
+        echo "============================================================"
+        echo "[4/8] KernelSU/ReSukiSU"
+        echo "============================================================"
+        SETUP_URL="https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh"
 
-        curl -LSfsS --retry 5 --retry-all-errors \
-          "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" \
-          -o "$RUNNER_TEMP/resukisu-setup.sh"
-        chmod +x "$RUNNER_TEMP/resukisu-setup.sh"
-
-        echo "[ReSukiSU] Integrating ref: ${{ inputs.ref }}"
-        bash "$RUNNER_TEMP/resukisu-setup.sh" "${{ inputs.ref }}"
-
-        test -d KernelSU/kernel || { echo "::error::ReSukiSU integration did not create KernelSU/kernel"; exit 1; }
-        test -L drivers/kernelsu || { echo "::error::ReSukiSU integration did not create drivers/kernelsu symlink"; exit 1; }
-
-        if [[ "${{ inputs.enable-manual-hook }}" == 'true' ]]; then
-          test -f scripts/config || { echo "::error::scripts/config is missing"; exit 1; }
-          scripts/config --file out/.config --enable KSU 2>/dev/null || true
-          scripts/config --file out/.config --enable KSU_MANUAL_HOOK 2>/dev/null || true
+        if [ -L drivers/kernelsu ] && [ -d ReSukiSU/kernel ]; then
+          echo "[+] ReSukiSU is already integrated; updating its repository."
+          git -C ReSukiSU fetch --tags --prune origin
+          branch=""
+          if branch="$(git -C ReSukiSU symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"; then
+            :
+          fi
+          if [ -n "$branch" ]; then
+            git -C ReSukiSU checkout "$branch"
+            git -C ReSukiSU pull --ff-only origin "$branch"
+          fi
+        else
+          echo "[+] Integrating ReSukiSU with the upstream setup script."
+          curl -fsSL "$SETUP_URL" | bash -
         fi
 
-        echo "[ReSukiSU] Source: $(git -C KernelSU rev-parse HEAD)"
-        echo "[ReSukiSU] Integrated successfully."
+        test -d ReSukiSU/kernel || {
+          echo "::error::ReSukiSU/kernel is missing after integration."
+          exit 1
+        }
+        test -L drivers/kernelsu || {
+          echo "::error::drivers/kernelsu symlink was not created by ReSukiSU setup."
+          exit 1
+        }
+        test -f drivers/kernelsu/Kconfig || {
+          echo "::error::drivers/kernelsu/Kconfig is missing."
+          exit 1
+        }
+        grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig || {
+          echo "::error::drivers/Kconfig is missing the ReSukiSU Kconfig entry."
+          exit 1
+        }
+        grep -q 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile || {
+          echo "::error::drivers/Makefile is missing the ReSukiSU Kbuild entry."
+          exit 1
+        }
+
+        scripts/config --file out/.config -e CONFIG_KSU
+        grep -q '^CONFIG_KSU=y$' out/.config || {
+          echo "::error::Failed to enable CONFIG_KSU=y."
+          exit 1
+        }
+        if grep -q '^CONFIG_KSU_MANUAL_HOOK=' out/.config; then
+          scripts/config --file out/.config -e CONFIG_KSU_MANUAL_HOOK
+        fi
+
+        echo "[+] ReSukiSU repository:"
+        git -C ReSukiSU status --short
+        echo "  branch: $(git -C ReSukiSU branch --show-current)"
+        echo "  commit: $(git -C ReSukiSU rev-parse HEAD)"
+        echo "  describe: $(git -C ReSukiSU describe --tags --always 2>/dev/null || git -C ReSukiSU rev-parse --short HEAD)"
+
+        echo "[+] Checking non-GKI KernelSU hook sites."
+        hooks=(
+          "fs/exec.c:ksu_handle_execveat"
+          "fs/open.c:ksu_handle_faccessat"
+          "fs/read_write.c:ksu_handle_vfs_read"
+          "fs/stat.c:ksu_handle_stat"
+          "kernel/reboot.c:ksu_handle_sys_reboot"
+        )
+        found=0
+        for item in "${hooks[@]}"; do
+          file="${item%%:*}"
+          symbol="${item#*:}"
+          if [ -f "$file" ] && grep -q "$symbol" "$file"; then
+            echo "  [OK] $file -> $symbol"
+            found=$((found + 1))
+          else
+            echo "  [MISSING] $file -> $symbol"
+          fi
+        done
+        if [ "$found" -lt "${#hooks[@]}" ]; then
+          echo "::error::One or more required non-GKI KernelSU hook sites are missing."
+          exit 1
+        fi
+        echo "[+] ReSukiSU integration and hook verification passed."
