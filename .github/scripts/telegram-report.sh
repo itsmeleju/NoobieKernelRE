@@ -148,15 +148,10 @@ else
     MESSAGE="❌ NoobieKernelRE build failed
 
 Kernel: ${KERNEL_VERSION}
-Duration: ${BUILD_DURATION}
 
-Repository:
-${REPO}
+Repository: itsmeleju/NoobieKernelRE
 
-Build:
-${RUN_URL}
-
-The complete build log is attached."
+Build: [WWW.GITHUB.COM/ITSMELEJU/NoobieKernelRE]
 
     send_message "$MESSAGE" || true
 
