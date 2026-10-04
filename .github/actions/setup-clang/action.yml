@@ -45,4 +45,5 @@ runs:
         test -x "${CLANG_DIR}/bin/ld.lld" || { echo "[!] ld.lld not found in ${CLANG_DIR}/bin"; exit 1; }
 
         echo "CLANG_DIR=${CLANG_DIR}" >> "${GITHUB_ENV}"
+        echo "${CLANG_DIR}/bin" >> "${GITHUB_PATH}"
         echo "[✓] Clang ready: $("${CLANG_DIR}/bin/clang" --version | head -n1)"
