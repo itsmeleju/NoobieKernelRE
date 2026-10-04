@@ -129,19 +129,16 @@ jobs:
 
       - name: Configure kernel
         shell: bash
-        env:
-          ARCH: ${{ env.ARCH }}
-          DEFCONFIG: ${{ env.DEFCONFIG }}
         run: |
           set -euo pipefail
-    
-          make O=out ARCH=${{ env.ARCH }} ${{ env.DEFCONFIG }}
+
+          bash .github/scripts/kmake.sh "${DEFCONFIG}" 2>&1 | tee -a build.log
 
           if [ -n "${LOCALVERSION_SUFFIX:-}" ]; then
             sed -i '/^CONFIG_LOCALVERSION=/d' out/.config
             echo "CONFIG_LOCALVERSION=\"${LOCALVERSION_SUFFIX}\"" >> out/.config
           fi
-  
+
           echo "[✓] Kernel configured." | tee -a build.log
 
       - name: Configure GPU driver and KernelSU options
@@ -179,15 +176,8 @@ jobs:
             scripts/config --file out/.config -d CONFIG_KSU
           fi
 
-          # Debug: Show config state before olddefconfig
-          echo "[*] Config state before olddefconfig:" | tee -a build.log
-          grep -E "CONFIG_MTK_GPU_MALI_(R25P|R32P)|CONFIG_MTK_GPU_VERSION" out/.config || echo "  (no matches)" | tee -a build.log
-
-          bash .github/scripts/kmake.sh olddefconfig 2>&1 | tee -a build.log
-
-          # Debug: Show config state after olddefconfig
-          echo "[*] Config state after olddefconfig:" | tee -a build.log
-          grep -E "CONFIG_MTK_GPU_MALI_(R25P|R32P)|CONFIG_MTK_GPU_VERSION" out/.config || echo "  (no matches)" | tee -a build.log
+          echo "[*] Config state after GPU/KSU settings:" | tee -a build.log
+          grep -E "CONFIG_MTK_GPU_MALI_(R25P|R32P)|CONFIG_MTK_GPU_VERSION|CONFIG_KSU" out/.config || echo "  (no matches)" | tee -a build.log
 
           echo "[✓] GPU / KernelSU configuration completed." | tee -a build.log
 
@@ -257,8 +247,6 @@ jobs:
           IMAGE="out/arch/arm64/boot/Image"
           DTB_DIR="out/arch/arm64/boot/dts/mediatek"
 
-          # Use the AnyKernel3 folder from the repo when it has a config.
-          # Otherwise bootstrap one from upstream plus the bundled template.
           if [ ! -f AnyKernel3/anykernel.sh ]; then
             echo "[*] AnyKernel3/anykernel.sh not found in repo, bootstrapping from upstream." | tee -a build.log
             rm -rf ak3-upstream
@@ -308,21 +296,26 @@ jobs:
           : > "${ERROR_FILE}"
           : > "${RAW_ERRORS}"
 
-          # 1. Extract raw errors from the build log
           if [ -f build.log ]; then
             grep -nEi \
               '(^|[[:space:]])(error:|fatal error:|llvm error:|undefined reference|ld\.lld: error:|collect2: error:|make(\[[0-9]+\])?: \*\*\*)' \
               build.log > "${RAW_ERRORS}" || true
           fi
 
-          # 2. Deduplicate identical error lines
           awk '!seen[$0]++' "${RAW_ERRORS}" > "${ERROR_FILE}"
           ERROR_COUNT="$(wc -l < "${ERROR_FILE}" | tr -d ' ')"
 
-          # 3. Step summary and inline annotations
           if [ "${ERROR_COUNT}" -gt 0 ]; then
             {
               echo "## ❌ Build Errors (${ERROR_COUNT} unique lines)"
               echo '```text'
               head -25 "${ERROR_FILE}" | cut -c1-300
-              echo '
+              echo '```'
+            } >> "${SUMMARY}"
+          else
+            {
+              echo "## ✅ Build Succeeded"
+              echo "Kernel Version: ${KERNEL_VERSION:-N/A}"
+              echo "Output ZIP: ${KERNEL_ZIP:-N/A}"
+            } >> "${SUMMARY}"
+          fi
