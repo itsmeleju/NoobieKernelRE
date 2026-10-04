@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 180
 
     env:
+      ARCH: arm64
       DEFCONFIG: ${{ inputs.defconfig }}
       RESUKISU: ${{ inputs.resukisu }}
       GPU_DRIVER: ${{ inputs.gpu_driver }}
