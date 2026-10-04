@@ -129,6 +129,9 @@ jobs:
 
       - name: Configure kernel
         shell: bash
+        env:
+          ARCH: ${{ env.ARCH }}
+          DEFCONFIG: ${{ env.DEFCONFIG }}
         run: |
           set -euo pipefail
     
