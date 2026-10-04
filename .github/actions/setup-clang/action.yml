@@ -1,5 +1,6 @@
 name: Setup Clang
 description: Resolve, cache, install, and verify a kernel Clang toolchain.
+
 inputs:
   toolchain:
     description: ZyCromerZ or Neutron
@@ -8,6 +9,7 @@ inputs:
     description: Exact GitHub release/tag. Empty uses the action default.
     required: false
     default: ""
+
 outputs:
   version:
     description: Resolved toolchain release/tag
@@ -15,6 +17,7 @@ outputs:
   clang_path:
     description: Selected Clang bin directory
     value: ${{ steps.setup.outputs.clang_path }}
+
 runs:
   using: composite
   steps:
@@ -24,18 +27,21 @@ runs:
       with:
         path: ${{ runner.temp }}/noobie-clang/ZyCromerZ/16.0.6-20260807-release
         key: ${{ runner.os }}-kernel-clang-ZyCromerZ-16.0.6-20260807-release
+
     - name: Cache Neutron default
       if: ${{ inputs.version_clang == '' && inputs.toolchain == 'Neutron' }}
       uses: actions/cache@v4
       with:
         path: ${{ runner.temp }}/noobie-clang/Neutron/06092026
         key: ${{ runner.os }}-kernel-clang-Neutron-06092026
+
     - name: Cache selected release
       if: ${{ inputs.version_clang != '' }}
       uses: actions/cache@v4
       with:
         path: ${{ runner.temp }}/noobie-clang/${{ inputs.toolchain }}/${{ inputs.version_clang }}
         key: ${{ runner.os }}-kernel-clang-${{ inputs.toolchain }}-${{ inputs.version_clang }}
+
     - name: Resolve and install Clang
       id: setup
       shell: bash
