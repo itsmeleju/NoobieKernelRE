@@ -175,7 +175,16 @@ jobs:
             scripts/config --file out/.config -d CONFIG_KSU
           fi
 
+          # Debug: Show config state before olddefconfig
+          echo "[*] Config state before olddefconfig:" | tee -a build.log
+          grep -E "CONFIG_MTK_GPU_MALI_(R25P|R32P)|CONFIG_MTK_GPU_VERSION" out/.config || echo "  (no matches)" | tee -a build.log
+
           bash .github/scripts/kmake.sh olddefconfig 2>&1 | tee -a build.log
+
+          # Debug: Show config state after olddefconfig
+          echo "[*] Config state after olddefconfig:" | tee -a build.log
+          grep -E "CONFIG_MTK_GPU_MALI_(R25P|R32P)|CONFIG_MTK_GPU_VERSION" out/.config || echo "  (no matches)" | tee -a build.log
+
           echo "[✓] GPU / KernelSU configuration completed." | tee -a build.log
 
       - name: Verify configurations
@@ -312,87 +321,4 @@ jobs:
               echo "## ❌ Build Errors (${ERROR_COUNT} unique lines)"
               echo '```text'
               head -25 "${ERROR_FILE}" | cut -c1-300
-              echo '```'
-            } >> "${SUMMARY}"
-
-            ERR_RE='^[0-9]+:(.+):([0-9]+):([0-9]+):[[:space:]](fatal error|error):(.*)$'
-            while IFS= read -r line; do
-              if [[ "${line}" =~ ${ERR_RE} ]]; then
-                FILE="${BASH_REMATCH[1]#../}"
-                LINE="${BASH_REMATCH[2]}"
-                COL="${BASH_REMATCH[3]}"
-                MSG="${BASH_REMATCH[4]}:${BASH_REMATCH[5]}"
-                echo "::error file=${FILE},line=${LINE},col=${COL},title=Kernel Build Error::${MSG}"
-              else
-                CLEAN_LINE="$(echo "${line}" | sed 's/^[0-9]*://')"
-                echo "::error title=Kernel Build Failure::${CLEAN_LINE}"
-              fi
-            done < <(head -15 "${ERROR_FILE}")
-          else
-            echo "## ✅ No compiler errors detected" >> "${SUMMARY}"
-          fi
-
-          # 4. Build metadata
-          {
-            echo ""
-            echo "### Build Metadata"
-            echo "| Parameter | Value |"
-            echo "|---|---|"
-            echo "| Status | ${{ job.status }} |"
-            echo "| Defconfig | \`${DEFCONFIG}\` |"
-            echo "| GPU Driver | \`${GPU_DRIVER}\` |"
-            echo "| ReSukiSU | \`${RESUKISU}\` |"
-            echo "| Kernel Version | \`${KERNEL_VERSION:-unknown}\` |"
-            echo "| Duration | \`${BUILD_DURATION:-unknown}s\` |"
-            echo "| Output ZIP | \`${KERNEL_ZIP:-not created}\` |"
-          } >> "${SUMMARY}"
-
-      - name: Upload complete build log
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-${{ github.run_number }}
-          path: |
-            build.log
-            build-errors.txt
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Upload kernel ZIP
-        if: ${{ success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: NoobieKernelRE-${{ github.run_number }}
-          path: NoobieKernelRE_GA-*.zip
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Telegram success report
-        if: ${{ success() }}
-        continue-on-error: true
-        shell: bash
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
-        run: |
-          bash .github/scripts/telegram-report.sh success \
-            "${KERNEL_ZIP:-}" \
-            "${KERNEL_VERSION:-unknown}" \
-            "${BUILD_DURATION:-unknown}" \
-            "${IMAGE_SHA256:-unknown}"
-
-      - name: Telegram failure report
-        if: ${{ failure() }}
-        continue-on-error: true
-        shell: bash
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
-        run: |
-          bash .github/scripts/telegram-report.sh failure \
-            "${KERNEL_ZIP:-}" \
-            "${KERNEL_VERSION:-unknown}" \
-            "${BUILD_DURATION:-unknown}" \
-            "${IMAGE_SHA256:-unknown}"
+              echo '
