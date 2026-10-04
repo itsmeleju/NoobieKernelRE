@@ -158,6 +158,13 @@ jobs:
 
       - name: "[4/16] KernelSU/ReSukiSU"
         if: ${{ inputs.resukisu == 'enabled' }}
+        run: |
+          # Purge any dummy or uninitialized placeholder folders
+          rm -rf ReSukiSU KernelSU drivers/kernelsu
+        shell: bash
+
+      - name: "[4/16] Run ReSukiSU Action"
+        if: ${{ inputs.resukisu == 'enabled' }}
         uses: ./.github/actions/resuki
 
       - name: "[4/16] KernelSU/ReSukiSU disabled"
