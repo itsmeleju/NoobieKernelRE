@@ -143,7 +143,18 @@ jobs:
           }
           want CONFIG_ARM64=y
           want "CONFIG_LOCALVERSION=\"$LOCALVERSION\""
-          if [ "$GPU" = r32p ]; then want CONFIG_MTK_GPU_MALI_R32P=y; else want CONFIG_MTK_GPU_MALI_R25P=y; fi
+          gpu_sym=CONFIG_MTK_GPU_MALI_R25P
+          if [ "$GPU" = r32p ]; then gpu_sym=CONFIG_MTK_GPU_MALI_R32P; fi
+          if grep -qE "^${gpu_sym}=[ym]$" "$OUT/.config"; then
+            echo "[OK] $gpu_sym"
+          else
+            echo "::error::$gpu_sym is not enabled in the final .config"
+            echo "--- Kconfig definitions of the symbol:"
+            grep -rn --include='Kconfig*' "${gpu_sym#CONFIG_}" drivers arch || echo "(none: symbol is not defined in this tree)"
+            echo "--- MTK_GPU lines in final .config:"
+            grep -n 'MTK_GPU' "$OUT/.config" || echo "(none)"
+            exit 1
+          fi
           if [ "$RESUKISU" = enabled ]; then want CONFIG_KSU=y; fi
 
       - name: "[7/9] Build"
