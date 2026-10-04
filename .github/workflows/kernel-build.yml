@@ -70,11 +70,6 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    env:
-      TOOLCHAIN: ${{ inputs.toolchain }}
-      VERSION_CLANG: ${{ inputs.version_clang }}
-      TOOLCHAIN_ROOT: ${{ runner.temp }}/noobie-clang
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -155,22 +150,9 @@ jobs:
       - name: "[3/16] Toolchain"
         id: toolchain
         uses: ./.github/actions/setup-clang
-        env:
-          TOOLCHAIN: ${{ inputs.toolchain }}
-          VERSION_CLANG: ${{ inputs.version_clang }}
-          TOOLCHAIN_ROOT: ${{ runner.temp }}/noobie-clang
         with:
           toolchain: ${{ inputs.toolchain }}
           version_clang: ${{ inputs.version_clang }}
-
-      - name: Cache Clang Toolchain
-        id: cache-clang
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.TOOLCHAIN_ROOT }}
-          key: clang-${{ runner.os }}-${{ inputs.toolchain }}-${{ inputs.version_clang }}
-          restore-keys: |
-            clang-${{ runner.os }}-${{ inputs.toolchain }}-
 
       - name: "[4/16] Configuration"
         shell: bash
@@ -582,7 +564,7 @@ jobs:
           retention-days: 14
 
       - name: Upload final AK3 ZIP
-        if: ${{ success() && env.ZIP_NAME != '' }}
+        if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ZIP_NAME }}
@@ -591,7 +573,7 @@ jobs:
           retention-days: 14
 
       - name: Telegram success report
-        if: ${{ success() && env.ZIP_NAME != '' }}
+        if: ${{ success() }}
         continue-on-error: true
         shell: bash
         run: |
