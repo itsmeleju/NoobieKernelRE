@@ -58,6 +58,7 @@ env:
   OUT: out
   ARCH: arm64
   SUBARCH: arm64
+  CROSS_COMPILE: aarch64-linux-gnu-   # GNU as/ld prefix (LLVM_IAS=0); binutils installed in step 2
   LLVM: "1"
   LLVM_IAS: "0"
   KCFLAGS: "-w -pipe -O2 -Wno-error"
@@ -117,7 +118,6 @@ jobs:
 
       - name: "[6/9] Configure and verify .config"
         run: |
-          : "${CROSS_COMPILE:?CROSS_COMPILE not set by setup-clang}"
           rm -rf "$OUT"
           make O="$OUT" ARCH="$ARCH" LLVM="$LLVM" LLVM_IAS="$LLVM_IAS" CROSS_COMPILE="$CROSS_COMPILE" "$DEFCONFIG"
 
