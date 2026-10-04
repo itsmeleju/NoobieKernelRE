@@ -10,9 +10,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-DEFAULTS = {
-    "ZyCromerZ": ("ZyCromerZ", "Clang-16.0.6-20260510-release"),
-    "Neutron": ("Neutron-Toolchains", "06092026"),
 }
 REPOS = {
     "ZyCromerZ": "ZyCromerZ/Clang",
@@ -47,30 +44,47 @@ def api(url):
 def resolve(toolchain, requested):
     if toolchain not in REPOS:
         die(f"Unsupported toolchain: {toolchain}. Use ZyCromerZ or Neutron.")
-    default_version = DEFAULTS[toolchain][1]
-    version = requested or default_version
+
     repo = REPOS[toolchain]
+
     if requested:
-        data = api(f"https://api.github.com/repos/{repo}/releases/tags/{requested}")
+        url = f"https://api.github.com/repos/{repo}/releases/tags/{requested}"
+        data = api(url)
     else:
-        data = api(f"https://api.github.com/repos/{repo}/releases/tags/{version}")
+        url = f"https://api.github.com/repos/{repo}/releases/latest"
+        data = api(url)
+
+    version = data.get("tag_name", "").strip()
+
+    if not version:
+        die(f"GitHub returned no release tag for {toolchain}.")
+
     if not data.get("assets"):
         die(f"No release assets found for {toolchain} release {version}.")
+
     candidates = []
+
     for asset in data["assets"]:
         name = asset.get("name", "")
         lower = name.lower()
-        if any(lower.endswith(ext) for ext in ARCHIVES) and "source" not in lower:
+        if (
+            any(lower.endswith(ext) for ext in ARCHIVES)
+            and "source" not in lower
+        ):
             candidates.append(asset)
     if not candidates:
-        die(f"No usable archive asset found for {toolchain} release {data.get('tag_name', version)}.")
-    candidates.sort(key=lambda a: (
-        "clang" not in a.get("name", "").lower(),
-        "toolchain" not in a.get("name", "").lower(),
-        len(a.get("name", "")),
-    ))
-    asset = candidates[0]
-    return data, asset
+        die(
+            f"No usable archive asset found for "
+            f"{toolchain} release {version}."
+        )
+    candidates.sort(
+        key=lambda a: (
+            "clang" not in a.get("name", "").lower(),
+            "toolchain" not in a.get("name", "").lower(),
+            len(a.get("name", "")),
+        )
+    )
+    return data, candidates[0]
 
 def sha256(path):
     import hashlib
