@@ -122,7 +122,6 @@ runs:
         hooks=(
           "fs/exec.c:ksu_handle_execveat"
           "fs/open.c:ksu_handle_faccessat"
-          "fs/read_write.c:ksu_handle_vfs_read"
           "fs/stat.c:ksu_handle_stat"
           "kernel/reboot.c:ksu_handle_sys_reboot"
         )
