@@ -57,10 +57,6 @@ permissions:
   contents: read
 
 env:
-  ARCH: arm64
-  SUBARCH: arm64
-  CROSS_COMPILE: aarch64-linux-android-
-  CROSS_COMPILE_ARM32: arm-linux-androideabi-
   OUT: out
   KCFLAGS: "-w -pipe -O2 -Wno-error"
   LLVM: "1"
@@ -381,8 +377,6 @@ jobs:
             O="$OUT" \
             ARCH="$ARCH" \
             SUBARCH="$SUBARCH" \
-            CROSS_COMPILE="$CROSS_COMPILE" \
-            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
             LLVM="$LLVM" \
             LLVM_IAS="$LLVM_IAS" \
             KCFLAGS="$KCFLAGS" \
