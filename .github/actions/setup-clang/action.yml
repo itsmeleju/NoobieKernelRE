@@ -1,0 +1,54 @@
+name: Setup Clang
+description: Install kernel build dependencies and the Clang toolchain, then export CLANG_DIR
+
+runs:
+  using: composite
+  steps:
+    - name: Install build dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update -y
+        sudo apt-get install -y --no-install-recommends \
+          bc \
+          binutils-aarch64-linux-gnu \
+          binutils-arm-linux-gnueabi \
+          bison \
+          build-essential \
+          cpio \
+          curl \
+          flex \
+          gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabi \
+          git \
+          libelf-dev \
+          libncurses-dev \
+          libssl-dev \
+          lz4 \
+          python3 \
+          xz-utils \
+          zip \
+          zstd
+
+    - name: Fetch Neutron Clang
+      shell: bash
+      run: |
+        set -euo pipefail
+        CLANG_DIR="${GITHUB_WORKSPACE}/clang"
+
+        if [ -x "${CLANG_DIR}/bin/clang" ]; then
+          echo "[✓] Clang restored from cache."
+        else
+          echo "[*] Downloading Neutron Clang with antman."
+          mkdir -p "${CLANG_DIR}"
+          cd "${CLANG_DIR}"
+          curl -fsSL "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman" -o antman
+          chmod +x antman
+          ./antman -S
+        fi
+
+        test -x "${CLANG_DIR}/bin/clang" || { echo "[!] clang not found in ${CLANG_DIR}/bin"; exit 1; }
+        test -x "${CLANG_DIR}/bin/ld.lld" || { echo "[!] ld.lld not found in ${CLANG_DIR}/bin"; exit 1; }
+
+        echo "CLANG_DIR=${CLANG_DIR}" >> "${GITHUB_ENV}"
+        echo "[✓] Clang ready: $("${CLANG_DIR}/bin/clang" --version | head -n1)"

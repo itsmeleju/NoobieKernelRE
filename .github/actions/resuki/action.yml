@@ -1,0 +1,31 @@
+name: Integrate ReSukiSU
+description: Add ReSukiSU (KernelSU fork) to the kernel source tree
+
+inputs:
+  ref:
+    description: ReSukiSU branch or tag
+    required: false
+    default: main
+
+runs:
+  using: composite
+  steps:
+    - name: Run ReSukiSU setup script
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        RESUKI_REF: ${{ inputs.ref }}
+      run: |
+        set -euo pipefail
+
+        test -d drivers || { echo "[!] Not in a kernel source tree (drivers/ missing)."; exit 1; }
+
+        curl -fsSL \
+          "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/${RESUKI_REF}/kernel/setup.sh" \
+          -o "${RUNNER_TEMP}/resuki-setup.sh"
+
+        bash "${RUNNER_TEMP}/resuki-setup.sh" "${RESUKI_REF}"
+
+        test -d KernelSU/kernel || { echo "[!] KernelSU/kernel missing after setup."; exit 1; }
+        test -L drivers/kernelsu || { echo "[!] drivers/kernelsu symlink missing after setup."; exit 1; }
+        echo "[✓] ReSukiSU integrated (ref: ${RESUKI_REF})."
