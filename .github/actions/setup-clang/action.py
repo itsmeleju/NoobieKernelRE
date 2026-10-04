@@ -10,7 +10,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-}
 REPOS = {
     "ZyCromerZ": "ZyCromerZ/Clang",
     "Neutron": "Neutron-Toolchains/clang-build-catalogue",
