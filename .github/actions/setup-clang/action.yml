@@ -22,8 +22,8 @@ runs:
       if: ${{ inputs.version_clang == '' && inputs.toolchain == 'ZyCromerZ' }}
       uses: actions/cache@v4
       with:
-        path: ${{ runner.temp }}/noobie-clang/ZyCromerZ/Clang-16.0.6-20260510-release
-        key: ${{ runner.os }}-kernel-clang-ZyCromerZ-Clang-16.0.6-20260510-release
+        path: ${{ runner.temp }}/noobie-clang/ZyCromerZ/16.0.6-20260807-release
+        key: ${{ runner.os }}-kernel-clang-ZyCromerZ-16.0.6-20260807-release
     - name: Cache Neutron default
       if: ${{ inputs.version_clang == '' && inputs.toolchain == 'Neutron' }}
       uses: actions/cache@v4
