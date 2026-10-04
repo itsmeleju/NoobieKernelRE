@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import hashlib
 import json
 import os
@@ -18,9 +19,11 @@ REPOS = {
 
 ARCHIVES = (".tar.gz", ".tar.xz", ".tar.zst", ".tar", ".zip")
 
+
 def die(message):
     print(f"::error::{message}")
     raise SystemExit(1)
+
 
 def api(url):
     request = urllib.request.Request(
@@ -31,6 +34,7 @@ def api(url):
             "User-Agent": "NoobieKernelRE-setup-clang",
         },
     )
+
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if token:
         request.add_header("Authorization", f"Bearer {token}")
@@ -122,9 +126,7 @@ def download(url, destination, expected_digest):
 
     request = urllib.request.Request(
         url,
-        headers={
-            "User-Agent": "NoobieKernelRE-setup-clang",
-        },
+        headers={"User-Agent": "NoobieKernelRE-setup-clang"},
     )
 
     try:
@@ -138,11 +140,7 @@ def download(url, destination, expected_digest):
                     f"HTTP {response.status}."
                 )
 
-            shutil.copyfileobj(
-                response,
-                output,
-                1024 * 1024,
-            )
+            shutil.copyfileobj(response, output, 1024 * 1024)
 
     except urllib.error.HTTPError as exc:
         die(
@@ -162,7 +160,6 @@ def download(url, destination, expected_digest):
         die(f"Downloaded archive is empty: {destination}")
 
     actual = sha256(destination)
-
     print(f"[Clang] Downloaded archive SHA256: {actual}")
 
     if expected_digest:
@@ -196,10 +193,7 @@ def extract(archive, destination):
     if destination.exists():
         shutil.rmtree(destination)
 
-    destination.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    destination.mkdir(parents=True, exist_ok=True)
 
     try:
         if archive.name.lower().endswith(".zip"):
@@ -216,7 +210,6 @@ def extract(archive, destination):
                     )
 
                 archive_file.extractall(destination)
-
             return
 
         with tarfile.open(archive, "r:*") as tar:
@@ -244,7 +237,9 @@ def extract(archive, destination):
                     ).resolve()
 
                     try:
-                        link_path.relative_to(destination.resolve())
+                        link_path.relative_to(
+                            destination.resolve()
+                        )
                     except ValueError:
                         die(
                             "Unsafe symlink escaping archive "
@@ -253,10 +248,12 @@ def extract(archive, destination):
 
             tar.extractall(destination)
 
-    except (tarfile.TarError, zipfile.BadZipFile, OSError) as exc:
-        die(
-            f"Toolchain archive extraction failed: {exc}"
-        )
+    except (
+        tarfile.TarError,
+        zipfile.BadZipFile,
+        OSError,
+    ) as exc:
+        die(f"Toolchain archive extraction failed: {exc}")
 
 
 def find_bin(root):
@@ -313,9 +310,7 @@ def verify(bin_dir):
         path = bin_dir / name
 
         if not path.is_file():
-            die(
-                f"Required LLVM binary is missing: {path}"
-            )
+            die(f"Required LLVM binary is missing: {path}")
 
     linker = None
 
@@ -369,15 +364,8 @@ def write_output(name, value):
 
 def main():
     toolchain = os.environ.get("TOOLCHAIN", "").strip()
-    requested = os.environ.get(
-        "VERSION_CLANG",
-        "",
-    ).strip()
-
-    root_value = os.environ.get(
-        "TOOLCHAIN_ROOT",
-        "",
-    ).strip()
+    requested = os.environ.get("VERSION_CLANG", "").strip()
+    root_value = os.environ.get("TOOLCHAIN_ROOT", "").strip()
 
     if not root_value:
         die("TOOLCHAIN_ROOT is not set.")
@@ -387,32 +375,18 @@ def main():
 
     root = Path(root_value).resolve()
 
-    data, asset = resolve(
-        toolchain,
-        requested,
-    )
+    data, asset = resolve(toolchain, requested)
 
-    version = str(
-        data.get("tag_name", "")
-    ).strip()
-
+    version = str(data.get("tag_name", "")).strip()
     if not version:
         die("Selected Clang release has no tag.")
 
-    install = (
-        root
-        / toolchain
-        / version
-    )
-
+    install = root / toolchain / version
     marker = install / ".noobie-complete"
 
     print(f"[Clang] Toolchain: {toolchain}")
     print(f"[Clang] Selected release: {version}")
-    print(
-        f"[Clang] Release page: "
-        f"{data.get('html_url', '')}"
-    )
+    print(f"[Clang] Release page: {data.get('html_url', '')}")
     print(f"[Clang] Installation path: {install}")
 
     bin_dir = None
@@ -421,11 +395,7 @@ def main():
         try:
             bin_dir = find_bin(install)
             verify(bin_dir)
-
-            print(
-                "[Clang] Verified cached toolchain "
-                "will be reused."
-            )
+            print("[Clang] Verified cached toolchain will be reused.")
         except SystemExit:
             raise
         except Exception as exc:
@@ -442,15 +412,9 @@ def main():
             bin_dir = None
 
     if bin_dir is None:
-        archive = (
-            Path(tempfile.gettempdir())
-            / asset["name"]
-        )
-
+        archive = Path(tempfile.gettempdir()) / asset["name"]
         extract_dir = Path(
-            tempfile.mkdtemp(
-                prefix="noobie-clang-"
-            )
+            tempfile.mkdtemp(prefix="noobie-clang-")
         )
 
         try:
@@ -462,15 +426,9 @@ def main():
                 asset.get("digest", ""),
             )
 
-            extract(
-                archive,
-                extract_dir,
-            )
+            extract(archive, extract_dir)
 
-            source_bin = find_bin(
-                extract_dir
-            )
-
+            source_bin = find_bin(extract_dir)
             source_root = source_bin.parent.resolve()
 
             try:
@@ -521,20 +479,11 @@ def main():
                 extract_dir,
                 ignore_errors=True,
             )
-            archive.unlink(
-                missing_ok=True
-            )
+            archive.unlink(missing_ok=True)
 
-    print(
-        f"[Clang] Installation verified: "
-        f"{install}"
-    )
+    print(f"[Clang] Installation verified: {install}")
 
-    github_path = os.environ.get(
-        "GITHUB_PATH",
-        "",
-    )
-
+    github_path = os.environ.get("GITHUB_PATH", "")
     if github_path:
         with open(
             github_path,
@@ -543,11 +492,7 @@ def main():
         ) as stream:
             stream.write(f"{bin_dir}\n")
 
-    github_env = os.environ.get(
-        "GITHUB_ENV",
-        "",
-    )
-
+    github_env = os.environ.get("GITHUB_ENV", "")
     if github_env:
         with open(
             github_env,
@@ -557,14 +502,8 @@ def main():
             stream.write("LLVM=1\n")
             stream.write("LLVM_IAS=0\n")
 
-    write_output(
-        "version",
-        version,
-    )
-    write_output(
-        "clang_path",
-        str(bin_dir),
-    )
+    write_output("version", version)
+    write_output("clang_path", str(bin_dir))
 
 
 if __name__ == "__main__":
