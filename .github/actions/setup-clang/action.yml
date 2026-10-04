@@ -1,49 +1,54 @@
 name: Setup Clang
-description: Resolve, cache, install, and verify a kernel Clang toolchain.
-inputs:
-  toolchain:
-    description: ZyCromerZ or Neutron
-    required: true
-  version_clang:
-    description: Exact GitHub release/tag. Empty uses the action default.
-    required: false
-    default: ""
-outputs:
-  version:
-    description: Resolved toolchain release/tag
-    value: ${{ steps.setup.outputs.version }}
-  clang_path:
-    description: Selected Clang bin directory
-    value: ${{ steps.setup.outputs.clang_path }}
+description: Install kernel build dependencies and the Clang toolchain, then export CLANG_DIR
+
 runs:
   using: composite
   steps:
-    - name: Cache ZyCromerZ default
-      if: ${{ inputs.version_clang == '' && inputs.toolchain == 'ZyCromerZ' }}
-      uses: actions/cache@v4
-      with:
-        path: ${{ runner.temp }}/noobie-clang/ZyCromerZ/Clang-16.0.6-20260510-release
-        key: ${{ runner.os }}-kernel-clang-ZyCromerZ-Clang-16.0.6-20260510-release
-    - name: Cache Neutron default
-      if: ${{ inputs.version_clang == '' && inputs.toolchain == 'Neutron' }}
-      uses: actions/cache@v4
-      with:
-        path: ${{ runner.temp }}/noobie-clang/Neutron/06092026
-        key: ${{ runner.os }}-kernel-clang-Neutron-06092026
-    - name: Cache selected release
-      if: ${{ inputs.version_clang != '' }}
-      uses: actions/cache@v4
-      with:
-        path: ${{ runner.temp }}/noobie-clang/${{ inputs.toolchain }}/${{ inputs.version_clang }}
-        key: ${{ runner.os }}-kernel-clang-${{ inputs.toolchain }}-${{ inputs.version_clang }}
-    - name: Resolve and install Clang
-      id: setup
+    - name: Install build dependencies
       shell: bash
-      env:
-        TOOLCHAIN: ${{ inputs.toolchain }}
-        VERSION_CLANG: ${{ inputs.version_clang }}
-        TOOLCHAIN_ROOT: ${{ runner.temp }}/noobie-clang
-        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        python3 "$GITHUB_ACTION_PATH/action.py"
+        sudo apt-get update -y
+        sudo apt-get install -y --no-install-recommends \
+          bc \
+          binutils-aarch64-linux-gnu \
+          binutils-arm-linux-gnueabi \
+          bison \
+          build-essential \
+          cpio \
+          curl \
+          flex \
+          gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabi \
+          git \
+          libelf-dev \
+          libncurses-dev \
+          libssl-dev \
+          lz4 \
+          python3 \
+          xz-utils \
+          zip \
+          zstd
+
+    - name: Fetch Neutron Clang
+      shell: bash
+      run: |
+        set -euo pipefail
+        CLANG_DIR="${GITHUB_WORKSPACE}/clang"
+
+        if [ -x "${CLANG_DIR}/bin/clang" ]; then
+          echo "[✓] Clang restored from cache."
+        else
+          echo "[*] Downloading Neutron Clang with antman."
+          mkdir -p "${CLANG_DIR}"
+          cd "${CLANG_DIR}"
+          curl -fsSL "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman" -o antman
+          chmod +x antman
+          ./antman -S
+        fi
+
+        test -x "${CLANG_DIR}/bin/clang" || { echo "[!] clang not found in ${CLANG_DIR}/bin"; exit 1; }
+        test -x "${CLANG_DIR}/bin/ld.lld" || { echo "[!] ld.lld not found in ${CLANG_DIR}/bin"; exit 1; }
+
+        echo "CLANG_DIR=${CLANG_DIR}" >> "${GITHUB_ENV}"
+        echo "[✓] Clang ready: $("${CLANG_DIR}/bin/clang" --version | head -n1)"

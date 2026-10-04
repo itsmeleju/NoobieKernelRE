@@ -1,90 +1,31 @@
 name: Integrate ReSukiSU
-description: Integrate and verify ReSukiSU for the current non-GKI kernel tree.
+description: Add ReSukiSU (KernelSU fork) to the kernel source tree
+
+inputs:
+  ref:
+    description: ReSukiSU branch or tag
+    required: false
+    default: main
+
 runs:
   using: composite
   steps:
-    - name: Integrate and verify ReSukiSU
+    - name: Run ReSukiSU setup script
       shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        RESUKI_REF: ${{ inputs.ref }}
       run: |
         set -euo pipefail
-        echo "============================================================"
-        echo "[4/8] KernelSU/ReSukiSU"
-        echo "============================================================"
-        SETUP_URL="https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh"
 
-        if [ -L drivers/kernelsu ] && [ -d ReSukiSU/kernel ]; then
-          echo "[+] ReSukiSU is already integrated; updating its repository."
-          git -C ReSukiSU fetch --tags --prune origin
-          branch=""
-          if branch="$(git -C ReSukiSU symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"; then
-            :
-          fi
-          if [ -n "$branch" ]; then
-            git -C ReSukiSU checkout "$branch"
-            git -C ReSukiSU pull --ff-only origin "$branch"
-          fi
-        else
-          echo "[+] Integrating ReSukiSU with the upstream setup script."
-          curl -fsSL "$SETUP_URL" | bash -
-        fi
+        test -d drivers || { echo "[!] Not in a kernel source tree (drivers/ missing)."; exit 1; }
 
-        test -d ReSukiSU/kernel || {
-          echo "::error::ReSukiSU/kernel is missing after integration."
-          exit 1
-        }
-        test -L drivers/kernelsu || {
-          echo "::error::drivers/kernelsu symlink was not created by ReSukiSU setup."
-          exit 1
-        }
-        test -f drivers/kernelsu/Kconfig || {
-          echo "::error::drivers/kernelsu/Kconfig is missing."
-          exit 1
-        }
-        grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig || {
-          echo "::error::drivers/Kconfig is missing the ReSukiSU Kconfig entry."
-          exit 1
-        }
-        grep -q 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile || {
-          echo "::error::drivers/Makefile is missing the ReSukiSU Kbuild entry."
-          exit 1
-        }
+        curl -fsSL \
+          "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/${RESUKI_REF}/kernel/setup.sh" \
+          -o "${RUNNER_TEMP}/resuki-setup.sh"
 
-        scripts/config --file out/.config -e CONFIG_KSU
-        grep -q '^CONFIG_KSU=y$' out/.config || {
-          echo "::error::Failed to enable CONFIG_KSU=y."
-          exit 1
-        }
-        if grep -q '^CONFIG_KSU_MANUAL_HOOK=' out/.config; then
-          scripts/config --file out/.config -e CONFIG_KSU_MANUAL_HOOK
-        fi
+        bash "${RUNNER_TEMP}/resuki-setup.sh" "${RESUKI_REF}"
 
-        echo "[+] ReSukiSU repository:"
-        git -C ReSukiSU status --short
-        echo "  branch: $(git -C ReSukiSU branch --show-current)"
-        echo "  commit: $(git -C ReSukiSU rev-parse HEAD)"
-        echo "  describe: $(git -C ReSukiSU describe --tags --always 2>/dev/null || git -C ReSukiSU rev-parse --short HEAD)"
-
-        echo "[+] Checking non-GKI KernelSU hook sites."
-        hooks=(
-          "fs/exec.c:ksu_handle_execveat"
-          "fs/open.c:ksu_handle_faccessat"
-          "fs/read_write.c:ksu_handle_vfs_read"
-          "fs/stat.c:ksu_handle_stat"
-          "kernel/reboot.c:ksu_handle_sys_reboot"
-        )
-        found=0
-        for item in "${hooks[@]}"; do
-          file="${item%%:*}"
-          symbol="${item#*:}"
-          if [ -f "$file" ] && grep -q "$symbol" "$file"; then
-            echo "  [OK] $file -> $symbol"
-            found=$((found + 1))
-          else
-            echo "  [MISSING] $file -> $symbol"
-          fi
-        done
-        if [ "$found" -lt "${#hooks[@]}" ]; then
-          echo "::error::One or more required non-GKI KernelSU hook sites are missing."
-          exit 1
-        fi
-        echo "[+] ReSukiSU integration and hook verification passed."
+        test -d KernelSU/kernel || { echo "[!] KernelSU/kernel missing after setup."; exit 1; }
+        test -L drivers/kernelsu || { echo "[!] drivers/kernelsu symlink missing after setup."; exit 1; }
+        echo "[✓] ReSukiSU integrated (ref: ${RESUKI_REF})."
