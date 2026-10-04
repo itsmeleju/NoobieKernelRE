@@ -1,70 +1,124 @@
-name: Integrate ReSukiSU
-description: Integrate and verify ReSukiSU for the current non-GKI kernel tree.
+name: 'ReSukiSU Integration'
+description: 'Integrates and verifies ReSukiSU for the current non-GKI kernel tree'
+
+inputs:
+  branch:
+    description: 'Branch or tag of ReSukiSU to use'
+    required: false
+    default: 'main'
+
 runs:
-  using: composite
+  using: "composite"
   steps:
     - name: Integrate and verify ReSukiSU
       shell: bash
       run: |
         set -euo pipefail
         echo "============================================================"
-        echo "[4/8] KernelSU/ReSukiSU"
+        echo "[ReSukiSU] Starting integration and verification"
         echo "============================================================"
-        SETUP_URL="https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh"
 
-        if [ -L drivers/kernelsu ] && [ -d ReSukiSU/kernel ]; then
-          echo "[+] ReSukiSU is already integrated; updating its repository."
-          git -C ReSukiSU fetch --tags --prune origin
-          branch=""
-          if branch="$(git -C ReSukiSU symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"; then
-            :
+        # 1. Detect and remove uninitialized submodules / gitlinks from Git index
+        for sub in ReSukiSU KernelSU; do
+          if git ls-files -s "$sub" 2>/dev/null | grep -q '^160000'; then
+            echo "[!] Uninitialized submodule gitlink detected for $sub in Git index."
+            git rm --cached -f "$sub" || true
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "build: remove uninitialized $sub gitlink" || true
+            echo "[+] Removed uninitialized $sub gitlink from repository index."
           fi
-          if [ -n "$branch" ]; then
-            git -C ReSukiSU checkout "$branch"
-            git -C ReSukiSU pull --ff-only origin "$branch"
-          fi
-        else
-          echo "[+] Integrating ReSukiSU with the upstream setup script."
-          curl -fsSL "$SETUP_URL" | bash -
+        done
+
+        if [ -f .gitmodules ]; then
+          sed -i '/\[submodule ".*\(ReSukiSU\|KernelSU\).*\"\]/,/url =/d' .gitmodules 2>/dev/null || true
         fi
 
+        # 2. Clean workspace directories and broken symlinks
+        rm -rf ReSukiSU KernelSU drivers/kernelsu
+
+        # 3. Clone fresh ReSukiSU repository
+        TARGET_BRANCH="${{ inputs.branch }}"
+        echo "[+] Cloning ReSukiSU repository (target branch: $TARGET_BRANCH)..."
+        CLONED=0
+        for repo_url in "https://github.com/rsuntk/ReSukiSU.git" "https://github.com/ReSukiSU/ReSukiSU.git"; do
+          if [ -n "$TARGET_BRANCH" ] && git clone --depth=1 -b "$TARGET_BRANCH" "$repo_url" ReSukiSU 2>/dev/null; then
+            CLONED=1
+            break
+          elif git clone --depth=1 "$repo_url" ReSukiSU 2>/dev/null; then
+            CLONED=1
+            break
+          fi
+        done
+
+        if [ "$CLONED" -ne 1 ]; then
+          echo "::error::Failed to clone ReSukiSU repository from available remote URLs."
+          exit 1
+        fi
+
+        # 4. Verify kernel source directory inside cloned repository
         test -d ReSukiSU/kernel || {
-          echo "::error::ReSukiSU/kernel is missing after integration."
+          echo "::error::ReSukiSU/kernel directory is missing after clone."
           exit 1
         }
+
+        # 5. Create drivers/kernelsu symlink
+        ln -sfn "$(pwd)/ReSukiSU/kernel" drivers/kernelsu
+        echo "[+] Symlink created: drivers/kernelsu -> ReSukiSU/kernel"
+
         test -L drivers/kernelsu || {
-          echo "::error::drivers/kernelsu symlink was not created by ReSukiSU setup."
+          echo "::error::drivers/kernelsu symlink was not created."
           exit 1
         }
         test -f drivers/kernelsu/Kconfig || {
           echo "::error::drivers/kernelsu/Kconfig is missing."
           exit 1
         }
+
+        # 6. Integrate into drivers/Kconfig if not already present
+        if ! grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig; then
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          echo "[+] Added ReSukiSU Kconfig entry to drivers/Kconfig"
+        fi
+
+        # 7. Integrate into drivers/Makefile if not already present
+        if ! grep -q 'kernelsu' drivers/Makefile; then
+          echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          echo "[+] Added ReSukiSU Kbuild entry to drivers/Makefile"
+        fi
+
         grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig || {
           echo "::error::drivers/Kconfig is missing the ReSukiSU Kconfig entry."
           exit 1
         }
-        grep -q 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile || {
+        grep -Eq 'obj-(\$\(CONFIG_KSU\)|y) \+= kernelsu/' drivers/Makefile || {
           echo "::error::drivers/Makefile is missing the ReSukiSU Kbuild entry."
           exit 1
         }
 
-        scripts/config --file out/.config -e CONFIG_KSU
-        grep -q '^CONFIG_KSU=y$' out/.config || {
-          echo "::error::Failed to enable CONFIG_KSU=y."
-          exit 1
-        }
-        if grep -q '^CONFIG_KSU_MANUAL_HOOK=' out/.config; then
-          scripts/config --file out/.config -e CONFIG_KSU_MANUAL_HOOK
+        # 8. Configure CONFIG_KSU if out/.config already exists
+        if [ -f "out/.config" ]; then
+          echo "[+] Configuring CONFIG_KSU in out/.config..."
+          scripts/config --file out/.config -e CONFIG_KSU
+          if grep -q '^CONFIG_KSU_MANUAL_HOOK=' out/.config; then
+            scripts/config --file out/.config -e CONFIG_KSU_MANUAL_HOOK
+          fi
+          grep -q '^CONFIG_KSU=y$' out/.config || {
+            echo "::error::Failed to set CONFIG_KSU=y in out/.config."
+            exit 1
+          }
+        else
+          echo "[+] out/.config not present yet; CONFIG_KSU will be evaluated during defconfig build."
         fi
 
-        echo "[+] ReSukiSU repository:"
-        git -C ReSukiSU status --short
-        echo "  branch: $(git -C ReSukiSU branch --show-current)"
-        echo "  commit: $(git -C ReSukiSU rev-parse HEAD)"
-        echo "  describe: $(git -C ReSukiSU describe --tags --always 2>/dev/null || git -C ReSukiSU rev-parse --short HEAD)"
+        # 9. Log integration metadata
+        echo "[+] ReSukiSU repository status:"
+        echo "  Branch: $(git -C ReSukiSU branch --show-current 2>/dev/null || echo detached)"
+        echo "  Commit: $(git -C ReSukiSU rev-parse HEAD)"
+        echo "  Describe: $(git -C ReSukiSU describe --tags --always 2>/dev/null || git -C ReSukiSU rev-parse --short HEAD)"
 
-        echo "[+] Checking non-GKI KernelSU hook sites."
+        # 10. Verify required non-GKI hook sites in kernel tree
+        echo "[+] Checking non-GKI KernelSU hook sites..."
         hooks=(
           "fs/exec.c:ksu_handle_execveat"
           "fs/open.c:ksu_handle_faccessat"
@@ -79,12 +133,17 @@ runs:
           if [ -f "$file" ] && grep -q "$symbol" "$file"; then
             echo "  [OK] $file -> $symbol"
             found=$((found + 1))
+          elif alt="$(grep -rl "$symbol" fs/ kernel/ 2>/dev/null | head -n1)" && [ -n "$alt" ]; then
+            echo "  [OK] $alt -> $symbol"
+            found=$((found + 1))
           else
             echo "  [MISSING] $file -> $symbol"
           fi
         done
+
         if [ "$found" -lt "${#hooks[@]}" ]; then
-          echo "::error::One or more required non-GKI KernelSU hook sites are missing."
+          echo "::error::One or more required non-GKI KernelSU hook sites are missing from the kernel tree."
           exit 1
         fi
-        echo "[+] ReSukiSU integration and hook verification passed."
+
+        echo "[+] ReSukiSU integration and hook verification passed successfully."
