@@ -1,12 +1,12 @@
 name: Setup Clang
-description: Resolve, cache, install, and verify a kernel Clang toolchain.
+description: Resolve, cache, install and verify a kernel Clang toolchain
 
 inputs:
   toolchain:
     description: ZyCromerZ or Neutron
     required: true
   version_clang:
-    description: Exact GitHub release/tag. Empty uses the action default.
+    description: Exact GitHub release/tag. Empty uses the default in action.py
     required: false
     default: ""
 
@@ -21,26 +21,14 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Cache ZyCromerZ default
-      if: ${{ inputs.version_clang == '' && inputs.toolchain == 'ZyCromerZ' }}
-      uses: actions/cache@v4
-      with:
-        path: ${{ runner.temp }}/noobie-clang/ZyCromerZ/16.0.6-20260807-release
-        key: ${{ runner.os }}-kernel-clang-ZyCromerZ-16.0.6-20260807-release
-
-    - name: Cache Neutron default
-      if: ${{ inputs.version_clang == '' && inputs.toolchain == 'Neutron' }}
-      uses: actions/cache@v4
-      with:
-        path: ${{ runner.temp }}/noobie-clang/Neutron/06092026
-        key: ${{ runner.os }}-kernel-clang-Neutron-06092026
-
-    - name: Cache selected release
+    # action.py resolves "latest" itself, so only a pinned tag has a stable cache key.
+    # Empty version_clang = always fetch the newest release (never a stale cache).
+    - name: Cache pinned toolchain
       if: ${{ inputs.version_clang != '' }}
       uses: actions/cache@v4
       with:
         path: ${{ runner.temp }}/noobie-clang/${{ inputs.toolchain }}/${{ inputs.version_clang }}
-        key: ${{ runner.os }}-kernel-clang-${{ inputs.toolchain }}-${{ inputs.version_clang }}
+        key: ${{ runner.os }}-clang-${{ inputs.toolchain }}-${{ inputs.version_clang }}
 
     - name: Resolve and install Clang
       id: setup
@@ -50,6 +38,4 @@ runs:
         VERSION_CLANG: ${{ inputs.version_clang }}
         TOOLCHAIN_ROOT: ${{ runner.temp }}/noobie-clang
         GITHUB_TOKEN: ${{ github.token }}
-      run: |
-        set -euo pipefail
-        python3 "$GITHUB_ACTION_PATH/action.py"
+      run: python3 "$GITHUB_ACTION_PATH/action.py"   # also verifies binaries and prints clang --version
