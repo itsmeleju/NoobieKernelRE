@@ -59,6 +59,8 @@ permissions:
 env:
   ARCH: arm64
   SUBARCH: arm64
+  CROSS_COMPILE: aarch64-linux-android-
+  CROSS_COMPILE_ARM32: arm-linux-androideabi-
   OUT: out
   KCFLAGS: "-w -pipe -O2 -Wno-error"
   LLVM: "1"
@@ -87,7 +89,7 @@ jobs:
           echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
           echo "Kernel source: $(git rev-parse --short HEAD)"
           echo "Kernel version: $(make -s kernelversion 2>/dev/null || echo unknown)"
-          echo "ARCH=$ARCH OUT=$OUT"
+          echo "ARCH=$ARCH SUBARCH=$SUBARCH OUT=$OUT"
           test -f "arch/arm64/configs/${{ inputs.defconfig }}" || {
             echo "::error::Defconfig not found: arch/arm64/configs/${{ inputs.defconfig }}"
             exit 1
@@ -154,12 +156,37 @@ jobs:
           toolchain: ${{ inputs.toolchain }}
           version_clang: ${{ inputs.version_clang }}
 
-      - name: "[4/16] Configuration"
+      - name: "[4/16] KernelSU/ReSukiSU"
+        if: ${{ inputs.resukisu == 'enabled' }}
+        uses: ./.github/actions/resuki
+
+      - name: "[4/16] KernelSU/ReSukiSU disabled"
+        if: ${{ inputs.resukisu == 'disabled' }}
+        shell: bash
+        run: |
+          echo "[+] ReSukiSU integration disabled."
+          if [ ! -f "drivers/kernelsu/Kconfig" ]; then
+            echo "[+] Creating drivers/kernelsu stub to prevent Kconfig resolution errors..."
+            mkdir -p drivers/kernelsu
+            touch drivers/kernelsu/Kconfig
+            echo 'obj-y :=' > drivers/kernelsu/Makefile
+          fi
+
+      - name: "[5/16] NoMount"
+        if: ${{ inputs.nomount == true }}
+        uses: ./.github/actions/nomount
+
+      - name: "[5/16] Skip NoMount"
+        if: ${{ inputs.nomount != true }}
+        shell: bash
+        run: echo "[NoMount] Integration disabled"
+
+      - name: "[6/16] Configuration"
         shell: bash
         run: |
           set -euo pipefail
           echo "============================================================"
-          echo "[4/16] Configuration"
+          echo "[6/16] Configuration"
           echo "============================================================"
 
           rm -rf "$OUT"
@@ -177,7 +204,7 @@ jobs:
               ;;
           esac
 
-          make O="$OUT" ARCH="$ARCH" "$DEFCONFIG"
+          make O="$OUT" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" "$DEFCONFIG"
 
           test -s "$OUT/.config" || {
             echo "::error::Requested defconfig did not create out/.config"
@@ -206,11 +233,10 @@ jobs:
           echo "Final configuration:"
           grep -E '^(CONFIG_LOCALVERSION=|CONFIG_MTK_GPU_MALI_R25P=|CONFIG_MTK_GPU_MALI_R32P=|CONFIG_MTK_GPU_VERSION=)' "$OUT/.config"
 
-      - name: "[5/16] Validate Android kernel configuration"
+      - name: "[7/16] Validate Android kernel configuration"
         shell: bash
         env:
           DEFCONFIG: ${{ inputs.defconfig }}
-          CROSS_COMPILE: aarch64-linux-android-
         run: |
           set -euo pipefail
 
@@ -218,7 +244,7 @@ jobs:
           DEFCONFIG_FILE="arch/arm64/configs/$DEFCONFIG"
 
           echo "============================================================"
-          echo "[5/16] Android / ARM64 configuration validation"
+          echo "[7/16] Android / ARM64 configuration validation"
           echo "============================================================"
 
           test -f "$DEFCONFIG_FILE" || {
@@ -332,28 +358,6 @@ jobs:
           report_config CONFIG_MTK_GPU_MALI_R32P
           report_config CONFIG_MTK_GPU_VERSION
 
-          echo
-          echo "[Important] CROSS_COMPILE is a Kbuild variable."
-          echo "[Important] CONFIG_CROSS_COMPILE is not required in .config."
-
-      - name: "[6/16] KernelSU/ReSukiSU"
-        if: ${{ inputs.resukisu == 'enabled' }}
-        uses: ./.github/actions/resuki
-
-      - name: "[6/16] KernelSU/ReSukiSU disabled"
-        if: ${{ inputs.resukisu == 'disabled' }}
-        shell: bash
-        run: echo "[+] ReSukiSU integration disabled; skipping."
-
-      - name: "[7/16] NoMount"
-        if: ${{ inputs.nomount == true }}
-        uses: ./.github/actions/nomount
-
-      - name: "[7/16] Skip NoMount"
-        if: ${{ inputs.nomount != true }}
-        shell: bash
-        run: echo "[NoMount] Integration disabled"
-
       - name: "[8/16] Kernel Build"
         id: build
         shell: bash
@@ -369,6 +373,9 @@ jobs:
           make -j"$(nproc)" \
             O="$OUT" \
             ARCH="$ARCH" \
+            SUBARCH="$SUBARCH" \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
             LLVM="$LLVM" \
             LLVM_IAS="$LLVM_IAS" \
             KCFLAGS="$KCFLAGS" \
@@ -545,7 +552,7 @@ jobs:
           echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
           echo "Final ZIP: $ZIP"
 
-      - name: Upload build log
+      - name: "[12/16] Upload build log"
         if: ${{ always() && hashFiles('build.log') != '' }}
         uses: actions/upload-artifact@v4
         with:
@@ -554,7 +561,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload failure report
+      - name: "[13/16] Upload failure report"
         if: ${{ failure() && hashFiles('build-error.txt') != '' }}
         uses: actions/upload-artifact@v4
         with:
@@ -563,7 +570,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload final AK3 ZIP
+      - name: "[14/16] Upload final AK3 ZIP"
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
@@ -572,7 +579,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Telegram success report
+      - name: "[15/16] Telegram success report"
         if: ${{ success() }}
         continue-on-error: true
         shell: bash
@@ -587,8 +594,8 @@ jobs:
             "${{ inputs.gpu_driver }}" \
             "${{ inputs.resukisu }}" \
             "${{ inputs.nomount }}" \
-            "$ZIP_NAME" \
-            "$ZIP_PATH"
+            "${{ env.ZIP_NAME }}" \
+            "${{ env.ZIP_PATH }}"
 
           status=$?
 
@@ -598,7 +605,7 @@ jobs:
 
           exit 0
 
-      - name: Telegram failure report
+      - name: "[16/16] Telegram failure report"
         if: ${{ failure() && hashFiles('build.log') != '' }}
         continue-on-error: true
         shell: bash
