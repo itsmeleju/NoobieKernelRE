@@ -1,4 +1,4 @@
-name: NoobieKernelRE Builder
+name: NoobieThingZ Kernel Builder
 
 on:
   workflow_dispatch:
@@ -70,18 +70,23 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env:
+      TOOLCHAIN: ${{ inputs.toolchain }}
+      VERSION_CLANG: ${{ inputs.version_clang }}
+      TOOLCHAIN_ROOT: ${{ runner.temp }}/noobie-clang
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: "[1/8] Environment"
+      - name: "[1/16] Environment"
         shell: bash
         run: |
           set -euo pipefail
           echo "============================================================"
-          echo "[1/8] Environment"
+          echo "[1/16] Environment"
           echo "============================================================"
           echo "Repository: $GITHUB_REPOSITORY"
           echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
@@ -99,21 +104,39 @@ jobs:
           echo "NoMount: ${{ inputs.nomount }}"
           echo "LOCALVERSION: ${{ inputs.localversion }}"
 
-      - name: "[1/8] Install missing host tools"
+      - name: "[2/16] Install missing host tools"
         shell: bash
         run: |
           set -euo pipefail
           declare -A need=(
-            [git]=git [make]=make [bc]=bc [bison]=bison [flex]=flex
-            [openssl]=openssl [perl]=perl [python3]=python3 [rsync]=rsync
-            [cpio]=cpio [zip]=zip [unzip]=unzip [tar]=tar [xz]=xz-utils
-            [lz4]=lz4 [dtc]=device-tree-compiler [gcc]=gcc [g++]=g++
-            [ar]=binutils [strip]=binutils [curl]=curl
+            [git]=git
+            [make]=make
+            [bc]=bc
+            [bison]=bison
+            [flex]=flex
+            [openssl]=openssl
+            [perl]=perl
+            [python3]=python3
+            [rsync]=rsync
+            [cpio]=cpio
+            [zip]=zip
+            [unzip]=unzip
+            [tar]=tar
+            [xz]=xz-utils
+            [lz4]=lz4
+            [dtc]=device-tree-compiler
+            [gcc]=gcc
+            [g++]=g++
+            [ar]=binutils
+            [strip]=binutils
+            [curl]=curl
           )
+
           missing=()
           for cmd in "${!need[@]}"; do
             command -v "$cmd" >/dev/null 2>&1 || missing+=("${need[$cmd]}")
           done
+
           if ((${#missing[@]})); then
             printf '[+] Installing: %s\n' "${missing[*]}"
             sudo apt-get update
@@ -121,6 +144,7 @@ jobs:
           else
             echo "[+] Required host tools already installed."
           fi
+
           for cmd in git make bc bison flex openssl perl python3 rsync cpio zip unzip tar xz lz4 dtc gcc g++ ar strip curl; do
             command -v "$cmd" >/dev/null 2>&1 || {
               echo "::error::Required host tool is missing: $cmd"
@@ -128,24 +152,40 @@ jobs:
             }
           done
 
-      - name: "[2/8] Toolchain"
+      - name: "[3/16] Toolchain"
         id: toolchain
         uses: ./.github/actions/setup-clang
+        env:
+          TOOLCHAIN: ${{ inputs.toolchain }}
+          VERSION_CLANG: ${{ inputs.version_clang }}
+          TOOLCHAIN_ROOT: ${{ runner.temp }}/noobie-clang
         with:
           toolchain: ${{ inputs.toolchain }}
           version_clang: ${{ inputs.version_clang }}
 
-      - name: "[3/8] Configuration"
+      - name: Cache Clang Toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TOOLCHAIN_ROOT }}
+          key: clang-${{ runner.os }}-${{ inputs.toolchain }}-${{ inputs.version_clang }}
+          restore-keys: |
+            clang-${{ runner.os }}-${{ inputs.toolchain }}-
+
+      - name: "[4/16] Configuration"
         shell: bash
         run: |
           set -euo pipefail
           echo "============================================================"
-          echo "[3/8] Configuration"
+          echo "[4/16] Configuration"
           echo "============================================================"
+
           rm -rf "$OUT"
           mkdir -p "$OUT"
+
           DEFCONFIG="${{ inputs.defconfig }}"
           LOCALVERSION="${{ inputs.localversion }}"
+
           case "${{ inputs.gpu_driver }}" in
             r32p|r25p)
               ;;
@@ -154,11 +194,14 @@ jobs:
               exit 1
               ;;
           esac
+
           make O="$OUT" ARCH="$ARCH" "$DEFCONFIG"
+
           test -s "$OUT/.config" || {
             echo "::error::Requested defconfig did not create out/.config"
             exit 1
           }
+
           case "${{ inputs.gpu_driver }}" in
             r32p)
               scripts/config --file "$OUT/.config" \
@@ -173,58 +216,198 @@ jobs:
                 --set-str CONFIG_MTK_GPU_VERSION "mali bifrost r25p0"
               ;;
           esac
+
           sed -i '/^CONFIG_LOCALVERSION=/d' "$OUT/.config"
-          scripts/config --file "$OUT/.config" --set-str CONFIG_LOCALVERSION "$LOCALVERSION"
+          scripts/config --file "$OUT/.config" \
+            --set-str CONFIG_LOCALVERSION "$LOCALVERSION"
+
           echo "Final configuration:"
           grep -E '^(CONFIG_LOCALVERSION=|CONFIG_MTK_GPU_MALI_R25P=|CONFIG_MTK_GPU_MALI_R32P=|CONFIG_MTK_GPU_VERSION=)' "$OUT/.config"
-          grep '^CONFIG_LOCALVERSION=' "$OUT/.config"
 
-      - name: "[4/8] KernelSU/ReSukiSU"
+      - name: "[5/16] Validate Android kernel configuration"
+        shell: bash
+        env:
+          DEFCONFIG: ${{ inputs.defconfig }}
+          CROSS_COMPILE: aarch64-linux-android-
+        run: |
+          set -euo pipefail
+
+          CONFIG="$OUT/.config"
+          DEFCONFIG_FILE="arch/arm64/configs/$DEFCONFIG"
+
+          echo "============================================================"
+          echo "[5/16] Android / ARM64 configuration validation"
+          echo "============================================================"
+
+          test -f "$DEFCONFIG_FILE" || {
+            echo "::error::Defconfig not found: $DEFCONFIG_FILE"
+            exit 1
+          }
+
+          test -s "$CONFIG" || {
+            echo "::error::Generated .config is missing: $CONFIG"
+            exit 1
+          }
+
+          config_value() {
+            local symbol="$1"
+            local value
+            value="$(sed -n -e "s/^${symbol}=//p" "$CONFIG" | head -n1)"
+            printf '%s' "$value"
+          }
+
+          symbol_exists() {
+            grep -Rqs \
+              --exclude-dir=.git \
+              -E "^[[:space:]]*(config|menuconfig)[[:space:]]+$1([[:space:]]|$)" \
+              arch drivers fs init ipc kernel mm net security \
+              2>/dev/null
+          }
+
+          require_config() {
+            local symbol="$1"
+            local expected="$2"
+            local actual
+
+            actual="$(config_value "$symbol")"
+
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::Android compatibility check failed: $symbol=$actual, expected $symbol=$expected"
+              exit 1
+            fi
+
+            echo "[OK] $symbol=$actual"
+          }
+
+          report_config() {
+            local symbol="$1"
+
+            if symbol_exists "$symbol"; then
+              local actual
+              actual="$(config_value "$symbol")"
+
+              if [[ -n "$actual" ]]; then
+                echo "[INFO] $symbol=$actual"
+              elif grep -q "^# $symbol is not set" "$CONFIG"; then
+                echo "[INFO] $symbol=n"
+              else
+                echo "[INFO] $symbol is defined but absent from generated .config"
+              fi
+            else
+              echo "[INFO] $symbol is not defined by this kernel tree"
+            fi
+          }
+
+          require_config CONFIG_ARM64 y
+          require_config CONFIG_64BIT y
+
+          echo
+          echo "[Architecture]"
+          echo "ARCH=$ARCH"
+          echo "SUBARCH=$SUBARCH"
+          echo "LLVM=$LLVM"
+          echo "LLVM_IAS=$LLVM_IAS"
+          echo "CROSS_COMPILE=$CROSS_COMPILE"
+
+          test "$ARCH" = "arm64" || {
+            echo "::error::Workflow ARCH must be arm64 for this Android kernel."
+            exit 1
+          }
+
+          test "$SUBARCH" = "arm64" || {
+            echo "::error::Workflow SUBARCH must be arm64."
+            exit 1
+          }
+
+          test "$LLVM" = "1" || {
+            echo "::error::LLVM must be 1 for this Clang build."
+            exit 1
+          }
+
+          test "$LLVM_IAS" = "0" || {
+            echo "::error::LLVM_IAS must remain 0 for this configured build."
+            exit 1
+          }
+
+          echo
+          echo "[Android compatibility indicators]"
+          report_config CONFIG_ANDROID
+          report_config CONFIG_ANDROID_BINDER_IPC
+          report_config CONFIG_DEVTMPFS
+          report_config CONFIG_DEVTMPFS_MOUNT
+          report_config CONFIG_CGROUPS
+          report_config CONFIG_NAMESPACES
+          report_config CONFIG_SECCOMP
+          report_config CONFIG_SECURITY_SELINUX
+          report_config CONFIG_FS_VERITY
+          report_config CONFIG_OVERLAY_FS
+
+          echo
+          echo "[Samsung / MediaTek indicators]"
+          report_config CONFIG_MTK_PLATFORM
+          report_config CONFIG_MTK_SCHEDULER
+          report_config CONFIG_MTK_GPU_MALI_R25P
+          report_config CONFIG_MTK_GPU_MALI_R32P
+          report_config CONFIG_MTK_GPU_VERSION
+
+          echo
+          echo "[Important] CROSS_COMPILE is a Kbuild variable."
+          echo "[Important] CONFIG_CROSS_COMPILE is not required in .config."
+
+      - name: "[6/16] KernelSU/ReSukiSU"
         if: ${{ inputs.resukisu == 'enabled' }}
         uses: ./.github/actions/resuki
 
-      - name: "[4/8] KernelSU/ReSukiSU disabled"
+      - name: "[6/16] KernelSU/ReSukiSU disabled"
         if: ${{ inputs.resukisu == 'disabled' }}
         shell: bash
         run: echo "[+] ReSukiSU integration disabled; skipping."
 
-      - name: NoMount
-        if: inputs.nomount == true
+      - name: "[7/16] NoMount"
+        if: ${{ inputs.nomount == true }}
         uses: ./.github/actions/nomount
-        with:
-          version: ${{ inputs.nomount_version }}
 
-      - name: Skip NoMount
-        if: inputs.nomount != true
+      - name: "[7/16] Skip NoMount"
+        if: ${{ inputs.nomount != true }}
         shell: bash
-        run: |
-          echo "[NoMount] Integration disabled"
+        run: echo "[NoMount] Integration disabled"
 
-      - name: "[6/8] Kernel Build"
+      - name: "[8/16] Kernel Build"
         id: build
         shell: bash
         run: |
           set -uo pipefail
+
           echo "============================================================"
-          echo "[6/8] Kernel Build"
+          echo "[8/16] Kernel Build"
           echo "============================================================"
+
           rm -f build.log
-          set -o pipefail
-          make -j"$(nproc)" O="$OUT" ARCH="$ARCH" LLVM="$LLVM" LLVM_IAS="$LLVM_IAS" \
-            KCFLAGS="$KCFLAGS" CONFIG_SECTION_MISMATCH_WARN_ONLY="$CONFIG_SECTION_MISMATCH_WARN_ONLY" \
+
+          make -j"$(nproc)" \
+            O="$OUT" \
+            ARCH="$ARCH" \
+            LLVM="$LLVM" \
+            LLVM_IAS="$LLVM_IAS" \
+            KCFLAGS="$KCFLAGS" \
+            CONFIG_SECTION_MISMATCH_WARN_ONLY="$CONFIG_SECTION_MISMATCH_WARN_ONLY" \
             2>&1 | tee build.log
+
           status=${PIPESTATUS[0]}
+
           if [ "$status" -ne 0 ]; then
             echo "::error::Kernel compilation failed with make exit code $status"
             exit "$status"
           fi
 
-      - name: "[6/8] Extract build failure"
+      - name: "[9/16] Extract build failure"
         if: ${{ failure() && steps.build.outcome == 'failure' }}
         shell: bash
         run: |
           set -euo pipefail
+
           REPORT=build-error.txt
+
           {
             echo "NoobieKernelRE build failure"
             echo "Commit: $(git rev-parse --short HEAD)"
@@ -232,17 +415,21 @@ jobs:
             echo "Toolchain: ${{ inputs.toolchain }}"
             echo "GPU: ${{ inputs.gpu_driver }}"
             echo
+
             echo "First meaningful compiler/linker error:"
             first=""
-            if grep -n -m1 -E '(^|[[:space:]])(fatal error:|error:|undefined reference|ld\\.lld: error:|collect2: error:|No rule to make target|recipe for target .+ failed|Error [0-9]+)' build.log > "$RUNNER_TEMP/first-error"; then
+
+            if grep -n -m1 -E '(^|[[:space:]])(fatal error:|error:|undefined reference|ld\.lld: error:|collect2: error:|No rule to make target|recipe for target .+ failed|Error [0-9]+)' build.log > "$RUNNER_TEMP/first-error"; then
               first="$(cat "$RUNNER_TEMP/first-error")"
             fi
+
             rm -f "$RUNNER_TEMP/first-error"
+
             if [ -n "$first" ]; then
               echo "$first"
               line="${first%%:*}"
-              start=$(( line > 8 ? line - 8 : 1 ))
-              end=$(( line + 8 ))
+              start=$((line > 8 ? line - 8 : 1))
+              end=$((line + 8))
               echo
               echo "Context:"
               sed -n "${start},${end}p" build.log
@@ -251,61 +438,127 @@ jobs:
               tail -n 80 build.log
             fi
           } > "$REPORT"
+
           cat "$REPORT"
           echo "::error file=build.log::Kernel build failed; see build-error.txt and build.log artifacts."
 
-      - name: "[7/8] Output Verification"
+      - name: "[10/16] Output Verification"
         if: ${{ success() }}
         shell: bash
         run: |
           set -euo pipefail
+
           echo "============================================================"
-          echo "[7/8] Output Verification"
+          echo "[10/16] Output Verification"
           echo "============================================================"
+
           IMAGE="$OUT/arch/arm64/boot/Image"
           DTB_DIR="$OUT/arch/arm64/boot/dts/mediatek"
-          test -s "$IMAGE" || { echo "::error::Kernel Image missing or empty: $IMAGE"; exit 1; }
-          test -d "$OUT/arch/arm64/boot/dtb" || { echo "::error::Kernel DTB output directory missing: $OUT/arch/arm64/boot/dtb"; exit 1; }
-          test -s "$DTB_DIR/mt6768.dtb" || { echo "::error::Required mt6768.dtb missing or empty: $DTB_DIR/mt6768.dtb"; exit 1; }
-          mapfile -t DTBS < <(find "$DTB_DIR" -maxdepth 1 -type f -name '*.dtb' -print | sort)
-          ((${#DTBS[@]} > 0)) || { echo "::error::No MediaTek DTBs were generated"; exit 1; }
+
+          test -s "$IMAGE" || {
+            echo "::error::Kernel Image missing or empty: $IMAGE"
+            exit 1
+          }
+
+          test -d "$OUT/arch/arm64/boot/dtb" || {
+            echo "::error::Kernel DTB output directory missing: $OUT/arch/arm64/boot/dtb"
+            exit 1
+          }
+
+          test -s "$DTB_DIR/mt6768.dtb" || {
+            echo "::error::Required mt6768.dtb missing or empty: $DTB_DIR/mt6768.dtb"
+            exit 1
+          }
+
+          mapfile -t DTBS < <(
+            find "$DTB_DIR" -maxdepth 1 -type f -name '*.dtb' -print | sort
+          )
+
+          ((${#DTBS[@]} > 0)) || {
+            echo "::error::No MediaTek DTBs were generated"
+            exit 1
+          }
+
           echo "Image:"
           ls -lh "$IMAGE"
+
           echo "DTBs:"
           printf '  %s\n' "${DTBS[@]}"
 
-      - name: "[8/8] AnyKernel3"
+      - name: "[11/16] AnyKernel3"
         if: ${{ success() }}
         id: package
         shell: bash
         run: |
           set -euo pipefail
+
           echo "============================================================"
-          echo "[8/8] AnyKernel3"
+          echo "[11/16] AnyKernel3"
           echo "============================================================"
+
           AK3_SRC="AnyKernel3"
-          test -d "$AK3_SRC" || { echo "::error::AnyKernel3 directory not found"; exit 1; }
-          test -f "$AK3_SRC/anykernel.sh" || { echo "::error::AnyKernel3/anykernel.sh not found"; exit 1; }
+
+          test -d "$AK3_SRC" || {
+            echo "::error::AnyKernel3 directory not found"
+            exit 1
+          }
+
+          test -f "$AK3_SRC/anykernel.sh" || {
+            echo "::error::AnyKernel3/anykernel.sh not found"
+            exit 1
+          }
+
           PKG="$RUNNER_TEMP/NoobieKernelRE-AK3"
           rm -rf "$PKG"
           mkdir -p "$PKG"
+
           rsync -a --exclude='.git' "$AK3_SRC/" "$PKG/"
           cp "$OUT/arch/arm64/boot/Image" "$PKG/Image"
-          find "$OUT/arch/arm64/boot/dts/mediatek" -maxdepth 1 -type f -name '*.dtb' -exec cp -f {} "$PKG/" \;
+
+          find "$OUT/arch/arm64/boot/dts/mediatek" \
+            -maxdepth 1 \
+            -type f \
+            -name '*.dtb' \
+            -exec cp -f {} "$PKG/" \;
+
           test -s "$PKG/Image"
           test -s "$PKG/mt6768.dtb"
+
           safe="$(printf '%s' "${{ inputs.zip_name }}" | tr -cd '[:alnum:]_.-')"
           safe="${safe#NoobieKernelRE-GA}"
           safe="${safe#-}"
           [ -n "$safe" ] || safe="build"
+
           stamp="$(date +'%Y%m%d-%H%M%S')"
           ZIP_NAME="NoobieKernelRE-GA-${safe}-${stamp}.zip"
           ZIP="$RUNNER_TEMP/$ZIP_NAME"
-          (cd "$PKG" && zip -r9 "$ZIP" . -x '.git/*' 'README.md' '*placeholder*' >/dev/null)
-          test -s "$ZIP" || { echo "::error::AnyKernel3 ZIP was not created"; exit 1; }
+
+          (
+            cd "$PKG"
+            zip -r9 "$ZIP" . \
+              -x '.git/*' \
+              -x 'README.md' \
+              -x '*placeholder*' \
+              >/dev/null
+          )
+
+          test -s "$ZIP" || {
+            echo "::error::AnyKernel3 ZIP was not created"
+            exit 1
+          }
+
           unzip -l "$ZIP"
-          unzip -l "$ZIP" | grep -Eq '[[:space:]]Image$' || { echo "::error::Image is missing from final ZIP"; exit 1; }
-          unzip -l "$ZIP" | grep -Eq '[[:space:]]mt6768\.dtb$' || { echo "::error::mt6768.dtb is missing from final ZIP"; exit 1; }
+
+          unzip -l "$ZIP" | grep -Eq '[[:space:]]Image$' || {
+            echo "::error::Image is missing from final ZIP"
+            exit 1
+          }
+
+          unzip -l "$ZIP" | grep -Eq '[[:space:]]mt6768\.dtb$' || {
+            echo "::error::mt6768.dtb is missing from final ZIP"
+            exit 1
+          }
+
           echo "ZIP_PATH=$ZIP" >> "$GITHUB_ENV"
           echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
           echo "Final ZIP: $ZIP"
@@ -343,7 +596,9 @@ jobs:
         shell: bash
         run: |
           set +e
+
           chmod +x .github/scripts/telegram_report.sh
+
           .github/scripts/telegram_report.sh success \
             "${{ inputs.toolchain }}" \
             "${{ steps.toolchain.outputs.version }}" \
@@ -352,10 +607,13 @@ jobs:
             "${{ inputs.nomount }}" \
             "$ZIP_NAME" \
             "$ZIP_PATH"
+
           status=$?
+
           if [ "$status" -ne 0 ]; then
             echo "::error::Telegram success report failed; kernel build and ZIP remain successful."
           fi
+
           exit 0
 
       - name: Telegram failure report
@@ -364,7 +622,9 @@ jobs:
         shell: bash
         run: |
           set +e
+
           chmod +x .github/scripts/telegram_report.sh
+
           .github/scripts/telegram_report.sh failure \
             "${{ inputs.toolchain }}" \
             "${{ steps.toolchain.outputs.version }}" \
@@ -373,8 +633,11 @@ jobs:
             "${{ inputs.nomount }}" \
             "" \
             ""
+
           status=$?
+
           if [ "$status" -ne 0 ]; then
             echo "::error::Telegram failure report could not be delivered."
           fi
+
           exit 0
