@@ -9,21 +9,15 @@ runs:
       run: |
         set -euo pipefail
         sudo apt-get update -y
+        sudo apt-get install -y build-essential binutils bc bison flex libssl-dev libelf-dev libncurses-dev
         sudo apt-get install -y --no-install-recommends \
-          bc \
           binutils-aarch64-linux-gnu \
           binutils-arm-linux-gnueabi \
-          bison \
-          build-essential \
           cpio \
           curl \
-          flex \
           gcc-aarch64-linux-gnu \
           gcc-arm-linux-gnueabi \
           git \
-          libelf-dev \
-          libncurses-dev \
-          libssl-dev \
           lz4 \
           python3 \
           xz-utils \
