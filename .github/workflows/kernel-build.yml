@@ -130,14 +130,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+    
+          make O=out ARCH=${{ env.ARCH }} ${{ env.DEFCONFIG }}
 
-          bash .github/scripts/kmake.sh "${DEFCONFIG}" 2>&1 | tee -a build.log
-
-          if [ -n "${LOCALVERSION_SUFFIX}" ]; then
+          if [ -n "${LOCALVERSION_SUFFIX:-}" ]; then
             sed -i '/^CONFIG_LOCALVERSION=/d' out/.config
             echo "CONFIG_LOCALVERSION=\"${LOCALVERSION_SUFFIX}\"" >> out/.config
           fi
-
+  
           echo "[✓] Kernel configured." | tee -a build.log
 
       - name: Configure GPU driver and KernelSU options
