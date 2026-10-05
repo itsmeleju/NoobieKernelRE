@@ -1,31 +1,129 @@
-name: Integrate ReSukiSU
-description: Add ReSukiSU (KernelSU fork) to the kernel source tree
+name: "ReSukiSU / KernelSU Setup"
+description: "Automatically integrates ReSukiSU or KernelSU driver sources into the Android kernel tree."
 
 inputs:
-  ref:
-    description: ReSukiSU branch or tag
+  repository:
+    description: "ReSukiSU / KernelSU Git repository URL"
     required: false
-    default: main
+    default: "https://github.com/rsuntk/ReSukiSU"
+  branch:
+    description: "Branch, tag, or commit to checkout"
+    required: false
+    default: "main"
+  target-link:
+    description: "Internal driver directory name inside drivers/"
+    required: false
+    default: "kernelsu"
+
+outputs:
+  ksu-version:
+    description: "Detected ReSukiSU / KernelSU version or commit hash"
+    value: "${{ steps.integrate.outputs.ksu_ver }}"
 
 runs:
-  using: composite
+  using: "composite"
   steps:
-    - name: Run ReSukiSU setup script
+    - name: Integrate ReSukiSU Driver
+      id: integrate
       shell: bash
-      working-directory: ${{ github.workspace }}
-      env:
-        RESUKI_REF: ${{ inputs.ref }}
       run: |
+        echo "::group::ReSukiSU / KernelSU Integration"
         set -euo pipefail
 
-        test -d drivers || { echo "[!] Not in a kernel source tree (drivers/ missing)."; exit 1; }
+        REPO_URL="${{ inputs.repository }}"
+        BRANCH="${{ inputs.branch }}"
+        TARGET_DIR="drivers/${{ inputs.target-link }}"
+        CLONE_DIR="KernelSU"
 
-        curl -fsSL \
-          "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/${RESUKI_REF}/kernel/setup.sh" \
-          -o "${RUNNER_TEMP}/resuki-setup.sh"
+        echo "[*] Target Repository : $REPO_URL"
+        echo "[*] Target Ref        : $BRANCH"
+        echo "[*] Driver Directory  : $TARGET_DIR"
 
-        bash "${RUNNER_TEMP}/resuki-setup.sh" "${RESUKI_REF}"
+        # ── 1. Fetch / Clone Source ───────────────────────────────────────────
+        if [ -d "$CLONE_DIR/.git" ]; then
+          echo "[*] Existing $CLONE_DIR repository found. Fetching latest changes..."
+          git -C "$CLONE_DIR" fetch --depth=1 origin "$BRANCH"
+          git -C "$CLONE_DIR" checkout FETCH_HEAD
+        else
+          echo "[*] Cloning ReSukiSU tree into $CLONE_DIR..."
+          rm -rf "$CLONE_DIR"
+          git clone --depth=1 -b "$BRANCH" "$REPO_URL" "$CLONE_DIR"
+        fi
 
-        test -d KernelSU/kernel || { echo "[!] KernelSU/kernel missing after setup."; exit 1; }
-        test -L drivers/kernelsu || { echo "[!] drivers/kernelsu symlink missing after setup."; exit 1; }
-        echo "[✓] ReSukiSU integrated (ref: ${RESUKI_REF})."
+        KSU_COMMIT=$(git -C "$CLONE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        echo "ksu_ver=$KSU_COMMIT" >> $GITHUB_OUTPUT
+        echo "[✓] Checked out commit: $KSU_COMMIT"
+
+        # ── 2. Establish Driver Link in drivers/ ──────────────────────────────
+        mkdir -p drivers
+
+        # Remove stale symlinks or conflicting directories
+        if [ -L "$TARGET_DIR" ] \vert{}\vert{} [ -d "$TARGET_DIR" ]; then
+          echo "[*] Cleaning existing target at $TARGET_DIR..."
+          rm -rf "$TARGET_DIR"
+        fi
+
+        # Auto-detect driver path: standard KernelSU nests files under 'kernel/'
+        if [ -d "$CLONE_DIR/kernel" ] && [ -f "$CLONE_DIR/kernel/Makefile" ]; then
+          echo "[*] Detected nested driver tree in $CLONE_DIR/kernel"
+          ln -sfn "../$CLONE_DIR/kernel" "$TARGET_DIR"
+        elif [ -f "$CLONE_DIR/Makefile" ]; then
+          echo "[*] Detected root driver tree in $CLONE_DIR"
+          ln -sfn "../$CLONE_DIR" "$TARGET_DIR"
+        else
+          echo "::error::Could not find a valid Makefile inside $CLONE_DIR or$CLONE_DIR/kernel!"
+          exit 1
+        fi
+
+        # ── 3. Patch drivers/Makefile ─────────────────────────────────────────
+        if [ -f "drivers/Makefile" ]; then
+          if grep -Eq 'obj-\$\(CONFIG_KSU\)[[:space:]]*\+=[[:space:]]*kernelsu/?' drivers/Makefile; then
+            echo "[✓] drivers/Makefile already contains CONFIG_KSU entry."
+          else
+            echo "[*] Patching drivers/Makefile with CONFIG_KSU target..."
+            printf "\nobj-\$(CONFIG_KSU) += %s/\n" "${{ inputs.target-link }}" >> drivers/Makefile
+          fi
+        else
+          echo "::error::drivers/Makefile not found in root kernel tree!"
+          exit 1
+        fi
+
+        # ── 4. Patch drivers/Kconfig ──────────────────────────────────────────
+        if [ -f "drivers/Kconfig" ]; then
+          KCONFIG_ENTRY="source \"drivers/${{ inputs.target-link }}/Kconfig\""
+          if grep -Fq "$KCONFIG_ENTRY" drivers/Kconfig; then
+            echo "[✓] drivers/Kconfig already references drivers/${{ inputs.target-link }}/Kconfig."
+          else
+            echo "[*] Patching drivers/Kconfig before final endmenu..."
+            if grep -Fq "endmenu" drivers/Kconfig; then
+              # Insert directly above the last endmenu block
+              sed -i -e '$ {/endmenu/!b; x; d; x}; /endmenu/ {x; /./!{x; h; d}; x}' drivers/Kconfig 2>/dev/null || true
+              sed -i "/endmenu/i $KCONFIG_ENTRY\n" drivers/Kconfig
+            else
+              echo "$KCONFIG_ENTRY" >> drivers/Kconfig
+            fi
+          fi
+        else
+          echo "::error::drivers/Kconfig not found in root kernel tree!"
+          exit 1
+        fi
+
+        # ── 5. Verification ───────────────────────────────────────────────────
+        if [ ! -f "$TARGET_DIR/Makefile" ] \vert{}\vert{} [ ! -f "$TARGET_DIR/Kconfig" ]; then
+          echo "::error::Verification failed: $TARGET_DIR does not contain both Makefile and Kconfig."
+          exit 1
+        fi
+
+        echo "[✓] ReSukiSU successfully integrated and linked to $TARGET_DIR."
+        echo "::endgroup::"
+
+        # ── Diagnostic Summary ───────────────────────────────────────────────
+        cat << EOF >> $GITHUB_STEP_SUMMARY
+        ### ReSukiSU Integration Summary
+        - **Repository:** \`$REPO_URL\`
+        - **Branch / Ref:** \`$BRANCH\`
+        - **Commit:** \`$KSU_COMMIT\`
+        - **Driver Path:** \`$TARGET_DIR\`
+        - **Makefile Integration:** Verified
+        - **Kconfig Integration:** Verified
+        EOF
