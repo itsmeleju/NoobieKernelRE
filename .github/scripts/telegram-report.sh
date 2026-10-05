@@ -1,99 +1,72 @@
 #!/usr/bin/env bash
-# Sends a build report to Telegram.
-#
-# Usage: telegram-report.sh <success|failure> <zip> <kernel_version> <duration_s> <image_sha256>
-# Env:   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_MESSAGE_THREAD_ID (optional)
-#        DEFCONFIG, GPU_DRIVER, RESUKISU (optional, shown in the report)
-
 set -euo pipefail
 
-STATUS="${1:-unknown}"
-ZIP="${2:-}"
-KERNEL_VERSION="${3:-unknown}"
-DURATION="${4:-unknown}"
-IMAGE_SHA256="${5:-unknown}"
+STATUS="${1:-failure}"
+KERNEL_ZIP="${2:-}"
 
-if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-  echo "[!] Telegram secrets are not set, skipping report."
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] \vert{}\vert{} [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+  echo "[!] Telegram secrets not defined. Skipping notification."
   exit 0
 fi
 
-API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
-RUN_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-0}"
+API_URL="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
 
-html_escape() {
-  local s="${1:-}"
-  s="${s//&/&amp;}"
-  s="${s//</&lt;}"
-  s="${s//>/&gt;}"
-  printf '%s' "${s}"
-}
+# Assemble commit metadata
+COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
+COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "N/A")
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+RUN_URL="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
-format_duration() {
-  local d="${1:-}"
-  if [[ "${d}" =~ ^[0-9]+$ ]]; then
-    printf '%dm %02ds' $((d / 60)) $((d % 60))
-  else
-    printf '%s' "${d}"
-  fi
-}
-
-# Optional forum topic
-thread_args=()
-if [ -n "${TELEGRAM_MESSAGE_THREAD_ID:-}" ]; then
-  thread_args=(--form-string "message_thread_id=${TELEGRAM_MESSAGE_THREAD_ID}")
+if [ "$STATUS" = "success" ]; then
+  EMOJI="✅"
+  HEADER="*Kernel Build Succeeded*"
+  ATTACHMENT_INFO="*Artifact:* \`${KERNEL_ZIP}\`"
+else
+  EMOJI="❌"
+  HEADER="*Kernel Build Failed*"
+  ATTACHMENT_INFO="*Status:* Compilation failed. Check GitHub workflow logs."
 fi
 
-tg_call() {
-  local method="$1"
-  shift
-  curl -fsS --max-time 300 \
-    --form-string "chat_id=${TELEGRAM_CHAT_ID}" \
-    ${thread_args[@]+"${thread_args[@]}"} \
-    "$@" \
-    "${API}/${method}" > /dev/null
-}
+MESSAGE=$(cat << EOF
+${EMOJI}${HEADER}
 
-if [ "${STATUS}" = "success" ]; then
-  HEADER="✅ <b>Build succeeded</b>"
-else
-  HEADER="❌ <b>Build failed</b>"
-fi
+*Repository:* \`${GITHUB_REPOSITORY}\`
+*Branch:* \`${BRANCH}\`
+*Commit:* [${COMMIT_HASH}](${RUN_URL}) - ${COMMIT_MSG}${ATTACHMENT_INFO}
 
-MESSAGE="$(
-  printf '%s\n' \
-    "${HEADER}" \
-    "" \
-    "<b>Kernel:</b> <code>$(html_escape "${KERNEL_VERSION}")</code>" \
-    "<b>Defconfig:</b> <code>$(html_escape "${DEFCONFIG:-unknown}")</code>" \
-    "<b>GPU driver:</b> <code>$(html_escape "${GPU_DRIVER:-unknown}")</code>" \
-    "<b>ReSukiSU:</b> <code>$(html_escape "${RESUKISU:-unknown}")</code>" \
-    "<b>Duration:</b> <code>$(html_escape "$(format_duration "${DURATION}")")</code>" \
-    "<b>Image SHA256:</b> <code>$(html_escape "${IMAGE_SHA256}")</code>" \
-    "<b>Commit:</b> <code>$(html_escape "${GITHUB_SHA:0:7}")</code>" \
-    "" \
-    "<a href=\"${RUN_URL}\">View workflow run</a>"
-)"
+[View Workflow Run](${RUN_URL})
+EOF
+)
 
-if [ "${STATUS}" = "success" ] && [ -n "${ZIP}" ] && [ -f "${ZIP}" ]; then
-  tg_call sendDocument \
-    --form-string "caption=${MESSAGE}" \
-    --form-string "parse_mode=HTML" \
-    -F "document=@${ZIP}" \
-    || echo "[!] Telegram sendDocument failed."
-else
-  tg_call sendMessage \
-    --form-string "text=${MESSAGE}" \
-    --form-string "parse_mode=HTML" \
-    --form-string "disable_web_page_preview=true" \
-    || echo "[!] Telegram sendMessage failed."
+PAYLOAD=$(jq -n \
+  --arg chat_id "${TELEGRAM_CHAT_ID}" \
+  --arg text "${MESSAGE}" \
+  --arg thread_id "${TELEGRAM_MESSAGE_THREAD_ID:-}" \
+  '{
+    chat_id: $chat_id,
+    text: $text,
+    parse_mode: "Markdown",
+    disable_web_page_preview: true
+  } + (if $thread_id != "" then {message_thread_id: ($thread_id | tonumber)} else {} end)'
+)
 
-  if [ "${STATUS}" != "success" ] && [ -f build.log ]; then
-    tg_call sendDocument \
-      --form-string "caption=Build log" \
-      -F "document=@build.log" \
-      || echo "[!] Telegram log upload failed."
+curl -s -X POST "${API_URL}/sendMessage" \
+  -H "Content-Type: application/json" \
+  -d "${PAYLOAD}" > /dev/null
+
+# Upload flashable ZIP directly to chat if build succeeded
+if [ "$STATUS" = "success" ] && [ -n "$KERNEL_ZIP" ] && [ -f "$KERNEL_ZIP" ]; then
+  FILE_SIZE_MB=$(du -m "$KERNEL_ZIP" | cut -f1)
+  # Bot API allows files up to 50MB
+  if [ "$FILE_SIZE_MB" -lt 50 ]; then
+    echo "[*] Sending ZIP document to Telegram..."
+    CURL_ARGS=(
+      -F "chat_id=${TELEGRAM_CHAT_ID}"
+      -F "document=@${KERNEL_ZIP}"
+    )
+    if [ -n "${TELEGRAM_MESSAGE_THREAD_ID:-}" ]; then
+      CURL_ARGS+=(-F "message_thread_id=${TELEGRAM_MESSAGE_THREAD_ID}")
+    fi
+    curl -s -X POST "${API_URL}/sendDocument" "${CURL_ARGS[@]}" > /dev/null || true
   fi
 fi
-
-echo "[✓] Telegram report sent (${STATUS})."
