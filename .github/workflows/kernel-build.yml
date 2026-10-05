@@ -51,7 +51,7 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: recursive
           fetch-depth: 1
 
       # ── Step 2: Workspace & Submodule Conflict Verification ─────────────────
@@ -129,17 +129,11 @@ jobs:
       # ── Step 6: Execute ReSukiSU Integration ────────────────────────────────
       - name: Execute ReSukiSU Integration
         if: ${{ env.RESUKISU == 'enabled' }}
-        run: |
-          echo "::group::ReSukiSU / KernelSU Setup"
-          if [ -f ".github/actions/resuki/action.yml" ]; then
-            echo "[*] Executing ReSukiSU composite action..."
-            # Invoked dynamically if required by user sub-action setup
-          elif [ -f "drivers/kernelsu" ] || [ -d "KernelSU" ]; then
-            echo "[✓] KernelSU tree detected in kernel source."
-          else
-            echo "[*] ReSukiSU enabled: Kernel configuration flag will be injected into .config."
-          fi
-          echo "::endgroup::"
+        id: resuki-setup
+        uses: ./.github/actions/resuki
+        with:
+          repository: "https://github.com/ReSukiSU/ReSukiSU"
+          branch: "main"
 
       # ── Step 7: Build Kernel ────────────────────────────────────────────────
       - name: Build Kernel
@@ -192,6 +186,17 @@ jobs:
           )
 
           mkdir -p out
+
+          # ── 7.0 Validate Kconfig Integrity
+          if [ ! -f "drivers/kernelsu/Kconfig" ]; then
+            if [ "${RESUKISU}" = "enabled" ]; then
+              echo "::error::drivers/kernelsu/Kconfig is missing but ReSukiSU is enabled! Check Step 6 logs."
+              exit 1
+            else
+              echo "[*] ReSukiSU disabled: Removing broken Kconfig reference from drivers/Kconfig..."
+              sed -i '/drivers\/kernelsu\/Kconfig/d' drivers/Kconfig
+            fi
+          fi
 
           # ── 7.1 Configure Kernel Defconfig
           echo "[*] Initializing defconfig: ${DEFCONFIG}..."
