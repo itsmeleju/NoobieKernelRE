@@ -1,22 +1,26 @@
 name: "Setup Clang & Kernel Build Environment"
-description: "Installs Linux kernel build dependencies, downloads, and configures the Clang toolchain."
+description: "Installs dependencies, downloads and extracts the toolchain with caching support."
 
 inputs:
   link:
-    description: "Direct download link to the Clang toolchain archive (.tar.gz, .tar.xz, .tar.zst)"
-    required: false
+    description: "Direct download link to the Clang toolchain archive"
+    required: true
     default: "https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20260619-release/Clang-14.0.6-20260619.tar.gz"
   install-dir:
-    description: "Directory where the toolchain will be extracted"
+    description: "Extraction target directory"
     required: false
-    default: "${{ github.workspace }}/toolchain/clang"
+    default: "${{ github.workspace }}/clang"
+  cache-hit:
+    description: "Indicates whether the toolchain directory was restored from GitHub cache"
+    required: false
+    default: "false"
 
 outputs:
   clang-dir:
-    description: "Absolute path to the extracted Clang toolchain directory"
+    description: "Path to extracted toolchain"
     value: "${{ inputs.install-dir }}"
   clang-version:
-    description: "Installed Clang compiler version string"
+    description: "Clang version string"
     value: "${{ steps.verify.outputs.clang_ver }}"
 
 runs:
@@ -41,48 +45,52 @@ runs:
         echo "::group::Downloading & Extracting Clang Toolchain"
         TARGET_DIR="${{ inputs.install-dir }}"
         SOURCE_URL="${{ inputs.link }}"
-        ARCHIVE_FILE="clang-toolchain.archive"
+        CACHE_STATUS="${{ inputs.cache-hit }}"
 
-        mkdir -p "$TARGET_DIR"
+        if [ "$CACHE_STATUS" = "true" ] && [ -f "$TARGET_DIR/bin/clang" ]; then
+          echo "[✓] Valid Clang installation restored from cache at $TARGET_DIR. Skipping download."
+        else
+          echo "[*] Toolchain not cached or incomplete. Fetching from source..."
+          mkdir -p "$TARGET_DIR"
+          ARCHIVE_FILE="clang-toolchain.archive"
 
-        echo "Download source: $SOURCE_URL"
-        echo "Target directory: $TARGET_DIR"
+          echo "[*] Source: $SOURCE_URL"
+          echo "[*] Destination: $TARGET_DIR"
 
-        # Fetch with curl showing real-time progress bar, redirects, and failure exit codes
-        curl -fSL --progress-bar "$SOURCE_URL" -o "$ARCHIVE_FILE"
+          curl -fSL --progress-bar "$SOURCE_URL" -o "$ARCHIVE_FILE"
 
-        FILE_SIZE=$(ls -lh "$ARCHIVE_FILE" | awk '{print $5}')
-        FILE_TYPE=$(file -b "$ARCHIVE_FILE")
-        echo "Downloaded file size: $FILE_SIZE"
-        echo "Archive detected as: $FILE_TYPE"
+          FILE_SIZE=$(ls -lh "$ARCHIVE_FILE" | awk '{print $5}')
+          FILE_TYPE=$(file -b "$ARCHIVE_FILE")
+          echo "[*] Downloaded archive size: $FILE_SIZE"
+          echo "[*] Archive type: $FILE_TYPE"
 
-        echo "Extracting archive..."
-        case "$FILE_TYPE" in
-          *"gzip compressed data"*)
-            tar -xzf "$ARCHIVE_FILE" -C "$TARGET_DIR"
-            ;;
-          *"XZ compressed data"*)
-            tar -xJf "$ARCHIVE_FILE" -C "$TARGET_DIR"
-            ;;
-          *"Zstandard compressed data"*)
-            tar --zstd -xf "$ARCHIVE_FILE" -C "$TARGET_DIR"
-            ;;
-          *"Zip archive data"*)
-            unzip -q "$ARCHIVE_FILE" -d "$TARGET_DIR"
-            ;;
-          *)
-            tar -xf "$ARCHIVE_FILE" -C "$TARGET_DIR"
-            ;;
-        esac
+          echo "[*] Extracting..."
+          case "$FILE_TYPE" in
+            *"gzip compressed data"*)
+              tar -xzf "$ARCHIVE_FILE" -C "$TARGET_DIR"
+              ;;
+            *"XZ compressed data"*)
+              tar -xJf "$ARCHIVE_FILE" -C "$TARGET_DIR"
+              ;;
+            *"Zstandard compressed data"*)
+              tar --zstd -xf "$ARCHIVE_FILE" -C "$TARGET_DIR"
+              ;;
+            *"Zip archive data"*)
+              unzip -q "$ARCHIVE_FILE" -d "$TARGET_DIR"
+              ;;
+            *)
+              tar -xf "$ARCHIVE_FILE" -C "$TARGET_DIR"
+              ;;
+          esac
 
-        rm -f "$ARCHIVE_FILE"
+          rm -f "$ARCHIVE_FILE"
+        fi
 
-        # Export binary path to runner environment
         echo "$TARGET_DIR/bin" >> $GITHUB_PATH
         echo "CLANG_PATH=$TARGET_DIR" >> $GITHUB_ENV
         echo "::endgroup::"
 
-    - name: Verify Environment and Generate Report
+    - name: Diagnostic Verification
       id: verify
       shell: bash
       run: |
@@ -90,28 +98,18 @@ runs:
         CLANG_BIN="${{ inputs.install-dir }}/bin/clang"
 
         if [ ! -f "$CLANG_BIN" ]; then
-          echo "::error::Clang binary not found at $CLANG_BIN. Extraction may have failed."
+          echo "::error::Clang binary not found at $CLANG_BIN! Check extraction directory structure."
           exit 1
         fi
 
         CLANG_VER=$("$CLANG_BIN" --version | head -n 1)
         LLD_VER=$("${{ inputs.install-dir }}/bin/ld.lld" --version | head -n 1 || echo "lld not present")
-        PAHOLE_VER=$(pahole --version 2>&1 || echo "pahole version check failed")
+        PAHOLE_VER=$(pahole --version 2>&1 || echo "pahole unavailable")
 
         echo "clang_ver=$CLANG_VER" >> $GITHUB_OUTPUT
 
-        echo "Compiler : $CLANG_VER"
-        echo "Linker   : $LLD_VER"
-        echo "Pahole   : $PAHOLE_VER"
-        echo "Host GCC : $(gcc --version | head -n 1)"
+        echo "Clang Compiler : $CLANG_VER"
+        echo "LLD Linker     : $LLD_VER"
+        echo "Pahole         : $PAHOLE_VER"
+        echo "Host GCC       : $(gcc --version | head -n 1)"
         echo "::endgroup::"
-
-        # Write formatted report to GitHub Step Summary
-        cat << EOF >> $GITHUB_STEP_SUMMARY
-        ### Clang Toolchain Setup Summary
-        - **Source URL:** \`${{ inputs.link }}\`
-        - **Install Path:** \`${{ inputs.install-dir }}\`
-        - **Clang Version:** \`$CLANG_VER\`
-        - **LLD Version:** \`$LLD_VER\`
-        - **Pahole:** \`$PAHOLE_VER\`
-        EOF
