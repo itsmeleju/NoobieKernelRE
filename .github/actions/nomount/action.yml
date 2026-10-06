@@ -1,0 +1,152 @@
+name: NoMount Integration
+description: Integrate NoMount into the Linux kernel source tree
+
+runs:
+  using: composite
+  steps:
+    - name: Setup NoMount
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "Setting up NoMount..."
+
+        curl -fsSL \
+          "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" \
+          | bash -
+
+    - name: Verify NoMount source
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        KERNEL_TREE="${GITHUB_WORKSPACE}"
+        NOMOUNT_DIR="${KERNEL_TREE}/fs/nomount"
+
+        echo "Kernel tree: ${KERNEL_TREE}"
+
+        # Locate the NoMount source downloaded by setup.sh.
+        NOMOUNT_SRC=""
+
+        for candidate in \
+          "${GITHUB_WORKSPACE}/nomount/kernel/src" \
+          "${HOME}/nomount/kernel/src" \
+          "/tmp/nomount/kernel/src" \
+          "${RUNNER_TEMP}/nomount/kernel/src"
+        do
+          if [ -d "${candidate}" ]; then
+            NOMOUNT_SRC="${candidate}"
+            break
+          fi
+        done
+
+        if [ -z "${NOMOUNT_SRC}" ]; then
+          echo "::error::Could not locate NoMount kernel/src directory after setup.sh"
+          echo "Searching for kernel/src..."
+          find "${GITHUB_WORKSPACE}" "${HOME}" "${RUNNER_TEMP}" \
+            -type d -path "*/nomount/kernel/src" 2>/dev/null || true
+          exit 1
+        fi
+
+        echo "NoMount source: ${NOMOUNT_SRC}"
+
+        # Make sure the required source files exist.
+        if [ ! -f "${NOMOUNT_SRC}/Kconfig" ]; then
+          echo "::error::NoMount Kconfig was not found in ${NOMOUNT_SRC}"
+          exit 1
+        fi
+
+        mkdir -p "${NOMOUNT_DIR}"
+
+        # Copy NoMount kernel sources into fs/nomount.
+        cp -rf "${NOMOUNT_SRC}/." "${NOMOUNT_DIR}/"
+
+        echo "NoMount sources copied to ${NOMOUNT_DIR}"
+
+    - name: Add NoMount to fs/Kconfig and fs/Makefile
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        KERNEL_TREE="${GITHUB_WORKSPACE}"
+
+        KCONFIG="${KERNEL_TREE}/fs/Kconfig"
+        FS_MAKEFILE="${KERNEL_TREE}/fs/Makefile"
+
+        if [ ! -f "${KCONFIG}" ]; then
+          echo "::error::${KCONFIG} not found"
+          exit 1
+        fi
+
+        if [ ! -f "${FS_MAKEFILE}" ]; then
+          echo "::error::${FS_MAKEFILE} not found"
+          exit 1
+        fi
+
+        # Add fs/nomount/Kconfig exactly once.
+        if ! grep -Fqx 'source "fs/nomount/Kconfig"' "${KCONFIG}"; then
+          printf '\nsource "fs/nomount/Kconfig"\n' >> "${KCONFIG}"
+        fi
+
+        # Add the NoMount Makefile entry exactly once.
+        if ! grep -Fqx 'obj-$(CONFIG_NOMOUNT) += nomount/' "${FS_MAKEFILE}"; then
+          printf '\nobj-$(CONFIG_NOMOUNT) += nomount/\n' >> "${FS_MAKEFILE}"
+        fi
+
+        echo "Verified fs/Kconfig:"
+        grep -F 'source "fs/nomount/Kconfig"' "${KCONFIG}"
+
+        echo "Verified fs/Makefile:"
+        grep -F 'obj-$(CONFIG_NOMOUNT) += nomount/' "${FS_MAKEFILE}"
+
+    - name: Enable CONFIG_NOMOUNT in defconfig
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        KERNEL_TREE="${GITHUB_WORKSPACE}"
+
+        DEFCONFIG_NAME="${{ github.event.inputs.defconfig || 'Noobie_SU_defconfig' }}"
+        DEFCONFIG_PATH="${KERNEL_TREE}/arch/arm64/configs/${DEFCONFIG_NAME}"
+
+        echo "DEFCONFIG_NAME=${DEFCONFIG_NAME}"
+        echo "DEFCONFIG_PATH=${DEFCONFIG_PATH}"
+
+        if [ ! -f "${DEFCONFIG_PATH}" ]; then
+          echo "::error::Defconfig not found: ${DEFCONFIG_PATH}"
+          exit 1
+        fi
+
+        # Replace an existing setting, otherwise append it.
+        if grep -Eq '^CONFIG_NOMOUNT=' "${DEFCONFIG_PATH}"; then
+          sed -i 's/^CONFIG_NOMOUNT=.*/CONFIG_NOMOUNT=y/' "${DEFCONFIG_PATH}"
+        elif grep -Eq '^# CONFIG_NOMOUNT is not set$' "${DEFCONFIG_PATH}"; then
+          sed -i 's/^# CONFIG_NOMOUNT is not set$/CONFIG_NOMOUNT=y/' "${DEFCONFIG_PATH}"
+        else
+          printf '\nCONFIG_NOMOUNT=y\n' >> "${DEFCONFIG_PATH}"
+        fi
+
+        echo "Verified CONFIG_NOMOUNT:"
+        grep -F 'CONFIG_NOMOUNT=y' "${DEFCONFIG_PATH}"
+
+    - name: Verify NoMount integration
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        KERNEL_TREE="${GITHUB_WORKSPACE}"
+        DEFCONFIG_NAME="${{ github.event.inputs.defconfig || 'Noobie_SU_defconfig' }}"
+        DEFCONFIG_PATH="${KERNEL_TREE}/arch/arm64/configs/${DEFCONFIG_NAME}"
+
+        test -d "${KERNEL_TREE}/fs/nomount"
+        test -f "${KERNEL_TREE}/fs/nomount/Kconfig"
+        grep -Fqx 'source "fs/nomount/Kconfig"' \
+          "${KERNEL_TREE}/fs/Kconfig"
+        grep -Fqx 'obj-$(CONFIG_NOMOUNT) += nomount/' \
+          "${KERNEL_TREE}/fs/Makefile"
+        grep -Fqx 'CONFIG_NOMOUNT=y' \
+          "${DEFCONFIG_PATH}"
+
+        echo "========================================"
+        echo "NoMount integration verified successfully"
+        echo "========================================"
