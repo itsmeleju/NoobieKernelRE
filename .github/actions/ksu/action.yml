@@ -53,8 +53,7 @@ runs:
         # ------------------------------------------------------------
           echo "[*] Downloading SU setup.sh..."
           curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -
-        fi
-
+          
         # ------------------------------------------------------------
         # 2. Verify driver directory
         # ------------------------------------------------------------
