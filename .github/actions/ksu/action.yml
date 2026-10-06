@@ -17,7 +17,7 @@ inputs:
     required: false
     default: "kernelsu"
 
-  defconfig-path:
+  DEFCONFIG_PATH-path:
     description: "Path to the kernel defconfig"
     required: true
     
@@ -46,12 +46,11 @@ runs:
         BRANCH="${{ inputs.branch }}"
         TARGET_LINK="${{ inputs.target-link }}"
         TARGET_DIR="drivers/${TARGET_LINK}"
-        DEFCONFIG="${{ inputs.defconfig-path }}"
 
         echo "[*] Repository     : ${REPO_URL}"
         echo "[*] Ref            : ${BRANCH}"
         echo "[*] Driver Path    : ${TARGET_DIR}"
-        echo "[*] Defconfig      : ${DEFCONFIG}"
+        echo "[*] Defconfig      : ${DEFCONFIG_PATH}"
 
         # ------------------------------------------------------------
         # 1. Install KernelSU
@@ -169,25 +168,18 @@ runs:
         # ------------------------------------------------------------
 
         DEFCONFIG_NAME="${{ inputs.defconfig }}"
-        DEFCONFIG="arch/arm64/configs/${DEFCONFIG_NAME}"
+        DEFCONFIG_PATH="arch/arm64/configs/${DEFCONFIG_NAME}"
 
         echo "[*] Checking target defconfig..."
-        echo "[*] Target: ${DEFCONFIG}"
+        echo "[*] Target: ${DEFCONFIG_PATH}"
 
-        if [ ! -f "${DEFCONFIG}" ]; then
+        if [ ! -f "${DEFCONFIG_PATH}" ]; then
             echo "[!] ERROR: Defconfig not found:"
             echo "    ${DEFCONFIG}"
             exit 1
         fi
-        echo "[✓] Defconfig found: ${DEFCONFIG}"
+        echo "[✓] Defconfig found: ${DEFCONFIG_PATH}"
 
-        echo "[*] Checking target defconfig..."
-        if [ ! -f "${DEFCONFIG}" ]; then
-          echo "[!] ERROR: Defconfig not found:"
-          echo "    ${DEFCONFIG}"
-          exit 1
-        fi
-        echo "[✓] Defconfig found: ${DEFCONFIG}"
         # ------------------------------------------------------------
         # 8. Enable CONFIG_KSU
         # ------------------------------------------------------------
@@ -196,16 +188,16 @@ runs:
 
         # Remove old CONFIG_KSU entries.
         sed -i '/^[#[:space:]]*CONFIG_KSU[=[:space:]]/d' \
-          "${DEFCONFIG}"
+          "${DEFCONFIG_PATH}"
 
         sed -i '/^CONFIG_KSU=/d' \
-          "${DEFCONFIG}"
+          "${DEFCONFIG_PATH}"
 
         # Add KSU.
         printf '\n# KernelSU\nCONFIG_KSU=y\n' \
-          >> "${DEFCONFIG}"
+          >> "${DEFCONFIG_PATH}"
 
-        echo "[✓] CONFIG_KSU=y added to ${DEFCONFIG}"
+        echo "[✓] CONFIG_KSU=y added to ${DEFCONFIG_PATH}"
 
         # ------------------------------------------------------------
         # 9. Check for manual-hook Kconfig symbol
@@ -218,10 +210,10 @@ runs:
           echo "[*] KSU_MANUAL_HOOK is supported."
 
           sed -i '/^[#[:space:]]*CONFIG_KSU_MANUAL_HOOK[=[:space:]]/d' \
-            "${DEFCONFIG}"
+            "${DEFCONFIG_PATH}"
 
           printf 'CONFIG_KSU_MANUAL_HOOK=y\n' \
-            >> "${DEFCONFIG}"
+            >> "${DEFCONFIG_PATH}"
 
           echo "[✓] CONFIG_KSU_MANUAL_HOOK=y added"
 
@@ -244,12 +236,12 @@ runs:
         echo "    ${SU_COMMIT}"
 
         echo "[*] Defconfig:"
-        echo "    ${DEFCONFIG}"
+        echo "    ${DEFCONFIG_PATH}"
 
         echo "[*] Configuration:"
         grep -E \
           '^CONFIG_KSU(=|_)' \
-          "${DEFCONFIG}" || true
+          "${DEFCONFIG_PATH}" || true
 
         echo "=========================================="
 
@@ -268,7 +260,7 @@ runs:
         - **Requested Ref:** \`${BRANCH}\`
         - **Detected Commit:** \`${SU_COMMIT}\`
         - **Driver Path:** \`${TARGET_DIR}\`
-        - **Defconfig:** \`${DEFCONFIG}\`
+        - **Defconfig:** \`${DEFCONFIG_PATH}\`
         - **Makefile Integration:** Verified
         - **Kconfig Integration:** Verified
         - **CONFIG_KSU:** Enabled
