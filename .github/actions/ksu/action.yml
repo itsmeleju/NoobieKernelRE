@@ -20,6 +20,11 @@ inputs:
   defconfig-path:
     description: "Path to the kernel defconfig"
     required: true
+    
+  defconfig:
+        description: "Kernel defconfig name"
+        required: true
+        default: "Noobie_SU_defconfig"
 
 outputs:
   ksu-version:
@@ -163,16 +168,26 @@ runs:
         # 7. Verify defconfig
         # ------------------------------------------------------------
 
-        echo "[*] Checking target defconfig..."
+        DEFCONFIG_NAME="${{ inputs.defconfig }}"
+        DEFCONFIG="arch/arm64/configs/${DEFCONFIG_NAME}"
 
+        echo "[*] Checking target defconfig..."
+        echo "[*] Target: ${DEFCONFIG}"
+
+        if [ ! -f "${DEFCONFIG}" ]; then
+            echo "[!] ERROR: Defconfig not found:"
+            echo "    ${DEFCONFIG}"
+            exit 1
+        fi
+        echo "[✓] Defconfig found: ${DEFCONFIG}"
+
+        echo "[*] Checking target defconfig..."
         if [ ! -f "${DEFCONFIG}" ]; then
           echo "[!] ERROR: Defconfig not found:"
           echo "    ${DEFCONFIG}"
           exit 1
         fi
-
         echo "[✓] Defconfig found: ${DEFCONFIG}"
-
         # ------------------------------------------------------------
         # 8. Enable CONFIG_KSU
         # ------------------------------------------------------------
