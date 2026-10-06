@@ -1,0 +1,261 @@
+name: "KernelSU / SU Setup"
+description: "Automatically integrates SU driver sources into the Android kernel tree."
+
+inputs:
+  repository:
+    description: "SU Git repository URL"
+    required: false
+    default: "https://github.com/backslashxx/KernelSU"
+
+  branch:
+    description: "Branch, tag, or commit to checkout"
+    required: false
+    default: "master"
+
+  target-link:
+    description: "Internal driver directory name inside drivers/"
+    required: false
+    default: "kernelsu"
+
+  defconfig-path:
+    description: "Path to the kernel defconfig"
+    required: true
+
+outputs:
+  ksu-version:
+    description: "Detected KernelSU/SU commit hash"
+    value: "${{ steps.integrate.outputs.ksu_ver }}"
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Integrate KSU Driver
+      id: integrate
+      shell: bash
+      run: |
+        echo "::group::KernelSU / SU Integration"
+        set -euo pipefail
+
+        REPO_URL="${{ inputs.repository }}"
+        BRANCH="${{ inputs.branch }}"
+        TARGET_LINK="${{ inputs.target-link }}"
+        TARGET_DIR="drivers/${TARGET_LINK}"
+        DEFCONFIG="${{ inputs.defconfig-path }}"
+
+        echo "[*] Repository     : ${REPO_URL}"
+        echo "[*] Ref            : ${BRANCH}"
+        echo "[*] Driver Path    : ${TARGET_DIR}"
+        echo "[*] Defconfig      : ${DEFCONFIG}"
+
+        # ------------------------------------------------------------
+        # 1. Install KernelSU
+        # ------------------------------------------------------------
+          echo "[*] Downloading SU setup.sh..."
+          curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -
+        fi
+
+        # ------------------------------------------------------------
+        # 2. Verify driver directory
+        # ------------------------------------------------------------
+
+        if [ ! -d "${TARGET_DIR}" ]; then
+          echo "[!] ERROR: ${TARGET_DIR} was not created."
+          echo "[!] Existing drivers/kernelsu directories:"
+          find drivers -maxdepth 2 -type d -iname '*kernelsu*' -print || true
+          exit 1
+        fi
+
+        echo "[✓] KernelSU driver found at ${TARGET_DIR}"
+
+        # ------------------------------------------------------------
+        # 3. Detect KernelSU commit/version
+        # ------------------------------------------------------------
+
+        SU_COMMIT="unknown"
+        SU_BRANCH="unknown"
+
+        echo "[*] Checking KernelSU version..."
+
+        pushd "${TARGET_DIR}" > /dev/null
+
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          SU_COMMIT="$(git rev-parse --short HEAD)"
+          SU_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+          echo "[✓] SU Branch : ${SU_BRANCH}"
+          echo "[✓] SU Commit : ${SU_COMMIT}"
+        else
+          echo "[i] KernelSU installed as a static directory."
+        fi
+
+        if [ -f "kernel/Makefile" ]; then
+          echo "[*] KernelSU version information:"
+          grep -E "KSU_VERSION|DKSU_VERSION|VERSION" \
+            kernel/Makefile || true
+        fi
+
+        popd > /dev/null
+
+        # Export output
+        echo "ksu_ver=${SU_COMMIT}" >> "$GITHUB_OUTPUT"
+
+        # ------------------------------------------------------------
+        # 4. Verify manual hooks
+        # ------------------------------------------------------------
+
+        echo "[*] Checking KernelSU hooks..."
+
+        if [ -f "fs/exec.c" ]; then
+          if grep -qi "ksu" fs/exec.c; then
+            echo "[✓] KSU reference found in fs/exec.c"
+          else
+            echo "[!] WARNING: No KSU reference found in fs/exec.c"
+          fi
+        else
+          echo "[!] WARNING: fs/exec.c not found"
+        fi
+
+        # ------------------------------------------------------------
+        # 5. Verify Makefile integration
+        # ------------------------------------------------------------
+
+        echo "[*] Checking drivers/Makefile..."
+
+        if grep -Eq \
+          "obj-\$\(CONFIG_KSU\)[[:space:]]*\+=[[:space:]]*${TARGET_LINK}/" \
+          drivers/Makefile; then
+
+          echo "[✓] drivers/Makefile already contains KSU binding"
+
+        else
+
+          echo "[*] Adding KSU Makefile binding..."
+
+          printf '\nobj-$(CONFIG_KSU) += %s/\n' "${TARGET_LINK}" \
+            >> drivers/Makefile
+
+          echo "[✓] KSU Makefile binding added"
+        fi
+
+        # ------------------------------------------------------------
+        # 6. Verify Kconfig integration
+        # ------------------------------------------------------------
+
+        echo "[*] Checking drivers/Kconfig..."
+
+        if grep -Fq \
+          "source \"drivers/${TARGET_LINK}/Kconfig\"" \
+          drivers/Kconfig; then
+
+          echo "[✓] drivers/Kconfig already contains KSU binding"
+
+        else
+
+          echo "[*] Adding KSU Kconfig binding..."
+
+          printf '\nsource "drivers/%s/Kconfig"\n' "${TARGET_LINK}" \
+            >> drivers/Kconfig
+
+          echo "[✓] KSU Kconfig binding added"
+        fi
+
+        # ------------------------------------------------------------
+        # 7. Verify defconfig
+        # ------------------------------------------------------------
+
+        echo "[*] Checking target defconfig..."
+
+        if [ ! -f "${DEFCONFIG}" ]; then
+          echo "[!] ERROR: Defconfig not found:"
+          echo "    ${DEFCONFIG}"
+          exit 1
+        fi
+
+        echo "[✓] Defconfig found: ${DEFCONFIG}"
+
+        # ------------------------------------------------------------
+        # 8. Enable CONFIG_KSU
+        # ------------------------------------------------------------
+
+        echo "[*] Enabling CONFIG_KSU..."
+
+        # Remove old CONFIG_KSU entries.
+        sed -i '/^[#[:space:]]*CONFIG_KSU[=[:space:]]/d' \
+          "${DEFCONFIG}"
+
+        sed -i '/^CONFIG_KSU=/d' \
+          "${DEFCONFIG}"
+
+        # Add KSU.
+        printf '\n# KernelSU\nCONFIG_KSU=y\n' \
+          >> "${DEFCONFIG}"
+
+        echo "[✓] CONFIG_KSU=y added to ${DEFCONFIG}"
+
+        # ------------------------------------------------------------
+        # 9. Check for manual-hook Kconfig symbol
+        # ------------------------------------------------------------
+
+        if grep -Rqs \
+          '^config KSU_MANUAL_HOOK' \
+          "${TARGET_DIR}" 2>/dev/null; then
+
+          echo "[*] KSU_MANUAL_HOOK is supported."
+
+          sed -i '/^[#[:space:]]*CONFIG_KSU_MANUAL_HOOK[=[:space:]]/d' \
+            "${DEFCONFIG}"
+
+          printf 'CONFIG_KSU_MANUAL_HOOK=y\n' \
+            >> "${DEFCONFIG}"
+
+          echo "[✓] CONFIG_KSU_MANUAL_HOOK=y added"
+
+        else
+          echo "[i] KSU_MANUAL_HOOK is not defined by this KernelSU tree."
+          echo "[i] Skipping CONFIG_KSU_MANUAL_HOOK."
+        fi
+
+        # ------------------------------------------------------------
+        # 10. Final verification
+        # ------------------------------------------------------------
+
+        echo
+        echo "========== KernelSU Integration =========="
+
+        echo "[*] Driver:"
+        echo "    ${TARGET_DIR}"
+
+        echo "[*] Commit:"
+        echo "    ${SU_COMMIT}"
+
+        echo "[*] Defconfig:"
+        echo "    ${DEFCONFIG}"
+
+        echo "[*] Configuration:"
+        grep -E \
+          '^CONFIG_KSU(=|_)' \
+          "${DEFCONFIG}" || true
+
+        echo "=========================================="
+
+        echo "[✓] KernelSU integration completed successfully."
+
+        echo "::endgroup::"
+
+        # ------------------------------------------------------------
+        # GitHub Step Summary
+        # ------------------------------------------------------------
+
+        cat >> "$GITHUB_STEP_SUMMARY" << EOF
+        ### KernelSU Integration Summary
+
+        - **Repository:** \`${REPO_URL}\`
+        - **Requested Ref:** \`${BRANCH}\`
+        - **Detected Commit:** \`${SU_COMMIT}\`
+        - **Driver Path:** \`${TARGET_DIR}\`
+        - **Defconfig:** \`${DEFCONFIG}\`
+        - **Makefile Integration:** Verified
+        - **Kconfig Integration:** Verified
+        - **CONFIG_KSU:** Enabled
+        EOF
