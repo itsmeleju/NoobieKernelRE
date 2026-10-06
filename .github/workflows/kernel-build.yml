@@ -41,8 +41,8 @@ env:
   CONFIG_LOCALVERSION: "${{ github.event.inputs.localversion || '-ver.1.8-GA' }}"
   ARCH: arm64
   SUBARCH: arm64
-  DEFCONFIG_NAME: ${{ inputs.defconfig }}
-  DEFCONFIG_PATH: arch/arm64/configs/${{ inputs.defconfig }}
+  DEFCONFIG_NAME: "${{ github.event.inputs.defconfig || 'Noobie_SU_defconfig' }}"
+  DEFCONFIG_PATH: arch/arm64/configs/${{ github.event.inputs.defconfig }}
 
 jobs:
   build-kernel:
