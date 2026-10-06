@@ -19,6 +19,14 @@ on:
         options:
           - r25p
           - r32p
+      nomount:
+        description: "No-Mount Integration"
+        required: false
+        default: "disabled"
+        type: choice
+        options:
+          - enabled
+          - disabled
       ksu:
         description: "Kernel SU Integration"
         required: true
@@ -127,8 +135,13 @@ jobs:
           link: ${{ env.TOOLCHAIN_LINK }}
           install-dir: ${{ github.workspace }}/clang
           cache-hit: ${{ steps.cache-toolchain.outputs.cache-hit }}
+          
+      # ── Step 6.1: Setup Clang and Build Environment ───────────────────────────
+      - name: Integrate NoMount
+        if: ${{ github.event.inputs.nomount == 'enabled' }}
+        uses: ./.github/actions/nomount
 
-      # ── Step 6: Execute kernelsu Integration ────────────────────────────────
+      # ── Step 6.2: Execute kernelsu Integration ────────────────────────────────
       - name: Execute kernelsu Integration
         if: ${{ env.ksu == 'enabled' }}
         id: ksu-setup
