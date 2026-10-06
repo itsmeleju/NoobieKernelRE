@@ -19,8 +19,8 @@ on:
         options:
           - r25p
           - r32p
-      resukisu:
-        description: "ReSukiSU / KernelSU integration"
+      ksu:
+        description: "Kernel SU Integration"
         required: true
         default: "enabled"
         type: choice
@@ -37,7 +37,7 @@ env:
   TOOLCHAIN_LINK: "${{ github.event.inputs.toolchain_link || 'https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20260619-release/Clang-14.0.6-20260619.tar.gz' }}"
   DEFCONFIG: "${{ github.event.inputs.defconfig || 'Noobie_SU_defconfig' }}"
   GPU_DRIVER: "${{ github.event.inputs.gpu_driver || 'r25p' }}"
-  RESUKISU: "${{ github.event.inputs.resukisu || 'enabled' }}"
+  ksu: "${{ github.event.inputs.ksu || 'enabled' }}"
   CONFIG_LOCALVERSION: "${{ github.event.inputs.localversion || '-ver.1.8-GA' }}"
   ARCH: arm64
   SUBARCH: arm64
@@ -126,14 +126,14 @@ jobs:
           install-dir: ${{ github.workspace }}/clang
           cache-hit: ${{ steps.cache-toolchain.outputs.cache-hit }}
 
-      # ── Step 6: Execute ReSukiSU Integration ────────────────────────────────
-      - name: Execute ReSukiSU Integration
-        if: ${{ env.RESUKISU == 'enabled' }}
-        id: resuki-setup
-        uses: ./.github/actions/resuki
+      # ── Step 6: Execute kernelsu Integration ────────────────────────────────
+      - name: Execute kernelsu Integration
+        if: ${{ env.ksu == 'enabled' }}
+        id: ksu-setup
+        uses: ./.github/actions/ksu
         with:
-          repository: "https://github.com/ReSukiSU/ReSukiSU"
-          branch: "main"
+          repository: "https://github.com/backslashxx/KernelSU"
+          branch: "master"
 
       # ── Step 7: Build Kernel ────────────────────────────────────────────────
       - name: Build Kernel
@@ -189,11 +189,11 @@ jobs:
 
           # ── 7.0 Validate Kconfig Integrity
           if [ ! -f "drivers/kernelsu/Kconfig" ]; then
-            if [ "${RESUKISU}" = "enabled" ]; then
-              echo "::error::drivers/kernelsu/Kconfig is missing but ReSukiSU is enabled! Check Step 6 logs."
+            if [ "${ksu}" = "enabled" ]; then
+              echo "::error::drivers/kernelsu/Kconfig is missing but kernelsu is enabled! Check Step 6 logs."
               exit 1
             else
-              echo "[*] ReSukiSU disabled: Removing broken Kconfig reference from drivers/Kconfig..."
+              echo "[*] ksu disabled: Removing broken Kconfig reference from drivers/Kconfig..."
               sed -i '/drivers\/kernelsu\/Kconfig/d' drivers/Kconfig
             fi
           fi
@@ -209,8 +209,8 @@ jobs:
             echo "CONFIG_LOCALVERSION=\"${CONFIG_LOCALVERSION}\"" >> out/.config
           fi
 
-          # ── 7.3 Apply ReSukiSU / KernelSU Config
-          if [ "${RESUKISU}" = "enabled" ]; then
+          # ── 7.3 Apply KSU Config
+          if [ "${ksu}" = "enabled" ]; then
             echo "[*] Enabling CONFIG_KSU..."
             sed -i '/CONFIG_KSU=/d' out/.config
             echo "CONFIG_KSU=y" >> out/.config
@@ -274,12 +274,12 @@ jobs:
           fi
 
           # Locate and copy DTB / DTBO if present
-          if [ -f "out/arch/arm64/boot/dtb" ]; then
-            cp out/arch/arm64/boot/dtb AnyKernel3/dtb
-          elif [ -f "out/arch/arm64/boot/dts/mediatek/mt6768.dtb" ]; then
-            cp out/arch/arm64/boot/dts/mediatek/mt6768.dtb AnyKernel3/dtb
+          if [ -f "out/arch/arm64/boot/dts/mediatek/mt6768.dtb" ]; then
+            cp "out/arch/arm64/boot/dts/mediatek/mt6768.dtb" "AnyKernel3/mt6768.dtb"
+            echo "Copied mt6768.dtb"
           elif [ -f "mt6768.dtb" ]; then
-            cp mt6768.dtb AnyKernel3/dtb
+            cp "mt6768.dtb" "AnyKernel3/mt6768.dtb"
+            echo "Copied mt6768.dtb"
           fi
 
           echo "::endgroup::"
@@ -289,7 +289,7 @@ jobs:
         run: |
           echo "::group::Packaging Flashable Kernel ZIP"
           BUILD_DATE=$(date +'%m%d-%H%M')
-          KERNEL_ZIP="NoobieKernelRE-GA-ReSUKISU-${BUILD_DATE}.zip"
+          KERNEL_ZIP="NoobieKernelRE-GA-${BUILD_DATE}.zip"
 
           cd AnyKernel3
           zip -r9 "../${KERNEL_ZIP}" . -x "*.git*" -x "README.md" -x "*.zip" 2>&1 | tee -a ../build.log
@@ -317,7 +317,7 @@ jobs:
             echo "| **Status** | \`${{ job.status }}\` |"
             echo "| **Defconfig** | \`${DEFCONFIG}\` |"
             echo "| **GPU Driver** | \`${GPU_DRIVER}\` |"
-            echo "| **ReSukiSU** | \`${RESUKISU}\` |"
+            echo "| **KSU integrate** | \`${ksu}\` |"
             echo "| **Kernel Version** | \`${KERNEL_FULL_VER}\` |"
             echo "| **Output ZIP** | \`${KERNEL_ZIP:-N/A}\` |"
             echo "| **Telegram Channel** | [Bootloopzz](https://t.me/Bootloopzz) |"
