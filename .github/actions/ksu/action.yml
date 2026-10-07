@@ -5,12 +5,12 @@ inputs:
   repository:
     description: "SU Git repository URL"
     required: false
-    default: "https://github.com/backslashxx/KernelSU"
+    default: "https://github.com/Baka-SU/BakaSU"
 
   branch:
     description: "Branch, tag, or commit to checkout"
     required: false
-    default: "master"
+    default: "main"
 
   target-link:
     description: "Internal driver directory name inside drivers/"
@@ -24,7 +24,7 @@ inputs:
   defconfig:
         description: "Kernel defconfig name"
         required: true
-        default: "Noobie_SU_defconfig"
+        default: "Noobie_SUSFS_defconfig"
 
 outputs:
   ksu-version:
@@ -56,7 +56,7 @@ runs:
         # 1. Install KernelSU
         # ------------------------------------------------------------
           echo "[*] Downloading SU setup.sh..."
-          curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -
+          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -
           
         # ------------------------------------------------------------
         # 2. Verify driver directory
@@ -78,7 +78,7 @@ runs:
         SU_COMMIT="unknown"
         SU_BRANCH="unknown"
 
-        echo "[*] Checking KernelSU version..."
+        echo "[*] Checking SU version..."
 
         pushd "${TARGET_DIR}" > /dev/null
 
@@ -89,7 +89,7 @@ runs:
           echo "[✓] SU Branch : ${SU_BRANCH}"
           echo "[✓] SU Commit : ${SU_COMMIT}"
         else
-          echo "[i] KernelSU installed as a static directory."
+          echo "[i] SU installed as a static directory."
         fi
 
         if [ -f "kernel/Makefile" ]; then
@@ -179,48 +179,6 @@ runs:
             exit 1
         fi
         echo "[✓] Defconfig found: ${DEFCONFIG_PATH}"
-
-        # ------------------------------------------------------------
-        # 8. Enable CONFIG_KSU
-        # ------------------------------------------------------------
-
-        echo "[*] Enabling CONFIG_KSU..."
-
-        # Remove old CONFIG_KSU entries.
-        sed -i '/^[#[:space:]]*CONFIG_KSU[=[:space:]]/d' \
-          "${DEFCONFIG_PATH}"
-
-        sed -i '/^CONFIG_KSU=/d' \
-          "${DEFCONFIG_PATH}"
-
-        # Add KSU.
-        printf '\n# KernelSU\nCONFIG_KSU=y\n' \
-          >> "${DEFCONFIG_PATH}"
-
-        echo "[✓] CONFIG_KSU=y added to ${DEFCONFIG_PATH}"
-
-        # ------------------------------------------------------------
-        # 9. Check for manual-hook Kconfig symbol
-        # ------------------------------------------------------------
-
-        if grep -Rqs \
-          '^config KSU_MANUAL_HOOK' \
-          "${TARGET_DIR}" 2>/dev/null; then
-
-          echo "[*] KSU_MANUAL_HOOK is supported."
-
-          sed -i '/^[#[:space:]]*CONFIG_KSU_MANUAL_HOOK[=[:space:]]/d' \
-            "${DEFCONFIG_PATH}"
-
-          printf 'CONFIG_KSU_MANUAL_HOOK=y\n' \
-            >> "${DEFCONFIG_PATH}"
-
-          echo "[✓] CONFIG_KSU_MANUAL_HOOK=y added"
-
-        else
-          echo "[i] KSU_MANUAL_HOOK is not defined by this KernelSU tree."
-          echo "[i] Skipping CONFIG_KSU_MANUAL_HOOK."
-        fi
 
         # ------------------------------------------------------------
         # 10. Final verification
