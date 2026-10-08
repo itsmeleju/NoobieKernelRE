@@ -147,8 +147,8 @@ jobs:
         id: ksu-setup
         uses: ./.github/actions/ksu
         with:
-          repository: "https://github.com/backslashxx/KernelSU"
-          branch: "master"
+          repository: "https://github.com/Baka-SU/BakaSU"
+          branch: "main"
 
       # ── Step 7: Build Kernel ────────────────────────────────────────────────
       - name: Build Kernel
