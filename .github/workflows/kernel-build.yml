@@ -35,6 +35,10 @@ on:
         options:
           - enabled
           - disabled
+      zip_name:
+        description: 'AK3 zip naming for easy kernel identifying'
+        required: false
+        default: ''
       localversion:
         description: "CONFIG_LOCALVERSION value"
         required: false
@@ -303,8 +307,12 @@ jobs:
       - name: Build AnyKernel3 Flashable ZIP
         run: |
           echo "::group::Packaging Flashable Kernel ZIP"
-          BUILD_DATE=$(date +'%m%d-%H%M')
-          KERNEL_ZIP="NoobieKernelRE-GA-${BUILD_DATE}.zip"
+          if [ -z "${{ github.event.inputs.zip_name }}" ]; then
+            BUILD_DATE=$(date +'%m%d-%H%M')
+            KERNEL_ZIP="NoobieKernelRE-GA-${BUILD_DATE}.zip"
+          else
+            KERNEL_ZIP="${{ github.event.inputs.zip_name }}"
+          fi
 
           cd AnyKernel3
           zip -r9 "../${KERNEL_ZIP}" . -x "*.git*" -x "README.md" -x "*.zip" 2>&1 | tee -a ../build.log
