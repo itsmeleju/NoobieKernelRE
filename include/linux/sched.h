@@ -33,6 +33,8 @@ struct audit_context;
 struct backing_dev_info;
 struct bio_list;
 struct blk_plug;
+struct bpf_local_storage;
+struct bpf_run_ctx;
 struct cfs_rq;
 struct fs_struct;
 struct futex_pi_state;
@@ -1418,13 +1420,6 @@ struct task_struct {
 	struct bpf_run_ctx		*bpf_ctx;
 #endif
 
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	int				susfs_last_fake_mnt_id;
-#endif
-#endif
-
-
-
 #ifdef CONFIG_MTK_TASK_TURBO
 	unsigned short turbo:1;
 	unsigned short render:1;
@@ -1448,7 +1443,6 @@ struct task_struct {
 	 *
 	 * Do not put anything below here!
 	 */
-};
 
 static inline struct pid *task_pid(struct task_struct *task)
 {
