@@ -5,12 +5,12 @@ inputs:
   repository:
     description: "SU Git repository URL"
     required: false
-    default: "https://github.com/backslashxx/KernelSU"
+    default: "https://github.com/Baka-SU/BakaSU"
 
   branch:
     description: "Branch, tag, or commit to checkout"
     required: false
-    default: "master"
+    default: "main"
 
   target-link:
     description: "Internal driver directory name inside drivers/"
@@ -56,7 +56,7 @@ runs:
         # 1. Install KernelSU
         # ------------------------------------------------------------
           echo "[*] Downloading SU setup.sh..."
-          curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -
+          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -
           
         # ------------------------------------------------------------
         # 2. Verify driver directory
@@ -69,16 +69,16 @@ runs:
           exit 1
         fi
 
-        echo "[✓] KernelSU driver found at ${TARGET_DIR}"
+        echo "[✓] SU driver found at ${TARGET_DIR}"
 
         # ------------------------------------------------------------
-        # 3. Detect KernelSU commit/version
+        # 3. Detect SU commit/version
         # ------------------------------------------------------------
 
         SU_COMMIT="unknown"
         SU_BRANCH="unknown"
 
-        echo "[*] Checking KernelSU version..."
+        echo "[*] Checking SU version..."
 
         pushd "${TARGET_DIR}" > /dev/null
 
@@ -89,7 +89,7 @@ runs:
           echo "[✓] SU Branch : ${SU_BRANCH}"
           echo "[✓] SU Commit : ${SU_COMMIT}"
         else
-          echo "[i] KernelSU installed as a static directory."
+          echo "[i] SU installed as a static directory."
         fi
 
         if [ -f "kernel/Makefile" ]; then
