@@ -11,6 +11,10 @@ on:
         description: "Kernel defconfig name"
         required: true
         default: "Noobie_SU_defconfig"
+      zip_name:
+        description: 'AK3 zip naming for easy kernel identifying'
+        required: false
+        default: ''
       gpu_driver:
         description: "GPU driver version"
         required: true
@@ -303,15 +307,19 @@ jobs:
       - name: Build AnyKernel3 Flashable ZIP
         run: |
           echo "::group::Packaging Flashable Kernel ZIP"
-          BUILD_DATE=$(date +'%m%d-%H%M')
-          KERNEL_ZIP="NoobieKernelRE-GA-${BUILD_DATE}.zip"
+          if [ -z "${{ github.event.inputs.zip_name }}" ]; then
+            BUILD_DATE=$(date +'%m%d-%H%M')
+            KERNEL_ZIP="NoobieKernelRE-GA-${BUILD_DATE}.zip"
+          else
+            KERNEL_ZIP="${{ github.event.inputs.zip_name }}"
+          fi
 
           cd AnyKernel3
           zip -r9 "../${KERNEL_ZIP}" . -x "*.git*" -x "README.md" -x "*.zip" 2>&1 | tee -a ../build.log
           cd ..
 
           echo "KERNEL_ZIP=${KERNEL_ZIP}" >> $GITHUB_ENV
-          echo "ZIP_PATH=${GITHUB_WORKSPACE}/${KERNEL_ZIP}" >> $GITHUB_ENV
+          echo "Final Zip Name: ${KERNEL_ZIP}"
           echo "[✓] Packaged successfully: ${KERNEL_ZIP}"
           echo "::endgroup::"
 
