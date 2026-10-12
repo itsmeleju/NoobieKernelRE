@@ -5,12 +5,12 @@ inputs:
   repository:
     description: "SU Git repository URL"
     required: false
-    default: "https://github.com/backslashxx/KernelSU"
+    default: "https://github.com/Baka-SU/BakaSU"
 
   branch:
     description: "Branch, tag, or commit to checkout"
     required: false
-    default: "master"
+    default: "main"
 
   target-link:
     description: "Internal driver directory name inside drivers/"
@@ -24,7 +24,7 @@ inputs:
   defconfig:
         description: "Kernel defconfig name"
         required: true
-        default: "Noobie_SU_defconfig"
+        default: "Noobie_SUSFS_defconfig"
 
 outputs:
   ksu-version:
@@ -56,7 +56,7 @@ runs:
         # 1. Install KernelSU
         # ------------------------------------------------------------
           echo "[*] Downloading SU setup.sh..."
-          curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -
+          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -
           
         # ------------------------------------------------------------
         # 2. Verify driver directory
@@ -69,16 +69,16 @@ runs:
           exit 1
         fi
 
-        echo "[✓] KernelSU driver found at ${TARGET_DIR}"
+        echo "[✓] SU driver found at ${TARGET_DIR}"
 
         # ------------------------------------------------------------
-        # 3. Detect KernelSU commit/version
+        # 3. Detect SU commit/version
         # ------------------------------------------------------------
 
         SU_COMMIT="unknown"
         SU_BRANCH="unknown"
 
-        echo "[*] Checking KernelSU version..."
+        echo "[*] Checking SU version..."
 
         pushd "${TARGET_DIR}" > /dev/null
 
@@ -89,7 +89,7 @@ runs:
           echo "[✓] SU Branch : ${SU_BRANCH}"
           echo "[✓] SU Commit : ${SU_COMMIT}"
         else
-          echo "[i] KernelSU installed as a static directory."
+          echo "[i] SU installed as a static directory."
         fi
 
         if [ -f "kernel/Makefile" ]; then
@@ -102,22 +102,6 @@ runs:
 
         # Export output
         echo "ksu_ver=${SU_COMMIT}" >> "$GITHUB_OUTPUT"
-
-        # ------------------------------------------------------------
-        # 4. Verify manual hooks
-        # ------------------------------------------------------------
-
-        echo "[*] Checking KernelSU hooks..."
-
-        if [ -f "fs/exec.c" ]; then
-          if grep -qi "ksu" fs/exec.c; then
-            echo "[✓] KSU reference found in fs/exec.c"
-          else
-            echo "[!] WARNING: No KSU reference found in fs/exec.c"
-          fi
-        else
-          echo "[!] WARNING: fs/exec.c not found"
-        fi
 
         # ------------------------------------------------------------
         # 5. Verify Makefile integration
@@ -139,28 +123,6 @@ runs:
             >> drivers/Makefile
 
           echo "[✓] KSU Makefile binding added"
-        fi
-
-        # ------------------------------------------------------------
-        # 6. Verify Kconfig integration
-        # ------------------------------------------------------------
-
-        echo "[*] Checking drivers/Kconfig..."
-
-        if grep -Fq \
-          "source \"drivers/${TARGET_LINK}/Kconfig\"" \
-          drivers/Kconfig; then
-
-          echo "[✓] drivers/Kconfig already contains KSU binding"
-
-        else
-
-          echo "[*] Adding KSU Kconfig binding..."
-
-          printf '\nsource "drivers/%s/Kconfig"\n' "${TARGET_LINK}" \
-            >> drivers/Kconfig
-
-          echo "[✓] KSU Kconfig binding added"
         fi
 
         # ------------------------------------------------------------
@@ -200,29 +162,6 @@ runs:
         echo "[✓] CONFIG_KSU=y added to ${DEFCONFIG_PATH}"
 
         # ------------------------------------------------------------
-        # 9. Check for manual-hook Kconfig symbol
-        # ------------------------------------------------------------
-
-        if grep -Rqs \
-          '^config KSU_MANUAL_HOOK' \
-          "${TARGET_DIR}" 2>/dev/null; then
-
-          echo "[*] KSU_MANUAL_HOOK is supported."
-
-          sed -i '/^[#[:space:]]*CONFIG_KSU_MANUAL_HOOK[=[:space:]]/d' \
-            "${DEFCONFIG_PATH}"
-
-          printf 'CONFIG_KSU_MANUAL_HOOK=y\n' \
-            >> "${DEFCONFIG_PATH}"
-
-          echo "[✓] CONFIG_KSU_MANUAL_HOOK=y added"
-
-        else
-          echo "[i] KSU_MANUAL_HOOK is not defined by this KernelSU tree."
-          echo "[i] Skipping CONFIG_KSU_MANUAL_HOOK."
-        fi
-
-        # ------------------------------------------------------------
         # 10. Final verification
         # ------------------------------------------------------------
 
@@ -245,7 +184,7 @@ runs:
 
         echo "=========================================="
 
-        echo "[✓] KernelSU integration completed successfully."
+        echo "[✓] SU integration completed successfully."
 
         echo "::endgroup::"
 
@@ -254,14 +193,12 @@ runs:
         # ------------------------------------------------------------
 
         cat >> "$GITHUB_STEP_SUMMARY" << EOF
-        ### KernelSU Integration Summary
+        ### SU Integration Summary
 
         - **Repository:** \`${REPO_URL}\`
         - **Requested Ref:** \`${BRANCH}\`
         - **Detected Commit:** \`${SU_COMMIT}\`
         - **Driver Path:** \`${TARGET_DIR}\`
         - **Defconfig:** \`${DEFCONFIG_PATH}\`
-        - **Makefile Integration:** Verified
-        - **Kconfig Integration:** Verified
         - **CONFIG_KSU:** Enabled
         EOF
