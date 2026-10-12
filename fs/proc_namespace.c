@@ -400,7 +400,6 @@ out:
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
 static int mounts_open_common(struct inode *inode, struct file *file,
 			      int (*show)(struct seq_file *, struct vfsmount *))
 {
@@ -488,7 +487,7 @@ static int mountinfo_open(struct inode *inode, struct file *file)
 			return mounts_open_common(inode, file, susfs_show_mountinfo);
 	}
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
+
 	return mounts_open_common(inode, file, show_mountinfo);
 }
 
@@ -526,3 +525,4 @@ const struct file_operations proc_mountstats_operations = {
 	.llseek		= seq_lseek,
 	.release	= mounts_release,
 };
+

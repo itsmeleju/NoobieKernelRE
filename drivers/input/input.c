@@ -399,8 +399,6 @@ static void input_handle_event(struct input_dev *dev,
 		ksu_handle_input_handle_event(&type, &code, &value);
 #endif
 
-
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
 	if (disposition != INPUT_IGNORE_EVENT && type != EV_SYN)
 		add_input_randomness(type, code, value);
 

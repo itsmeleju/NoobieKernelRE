@@ -40,15 +40,12 @@
 #include "pnode.h"
 #include "internal.h"
 
-<<<<<<< HEAD
-=======
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 extern bool susfs_is_current_ksu_domain(void);
 extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
 #define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */
 #endif
 
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
 #ifdef CONFIG_KDP_NS
 #define KDP_MOUNT_SYSTEM "/system"
 #define KDP_MOUNT_SYSTEM_LEN strlen(KDP_MOUNT_SYSTEM)
@@ -324,8 +321,6 @@ static int mnt_alloc_vfsmount(struct mount *mnt)
 static void mnt_free_id(struct mount *mnt)
 {
 	int id = mnt->mnt_id;
-<<<<<<< HEAD
-=======
 
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	if (mnt->mnt.mnt_flags & VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT)
@@ -333,7 +328,6 @@ static void mnt_free_id(struct mount *mnt)
 
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
 	spin_lock(&mnt_id_lock);
 	ida_remove(&mnt_id_ida, id);
 	if (mnt_id_start > id)
@@ -350,11 +344,9 @@ static int mnt_alloc_group_id(struct mount *mnt)
 {
 	int res;
 
-<<<<<<< HEAD
 	if (!ida_pre_get(&mnt_group_ida, GFP_KERNEL))
 		return -ENOMEM;
 
-=======
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	if (susfs_is_current_ksu_domain()) {
 		if (!ida_pre_get(&mnt_group_ida, GFP_KERNEL))
@@ -367,7 +359,7 @@ static int mnt_alloc_group_id(struct mount *mnt)
 
 	if (!ida_pre_get(&mnt_group_ida, GFP_KERNEL))
 		return -ENOMEM;
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
+
 	res = ida_get_new_above(&mnt_group_ida,
 				mnt_group_start,
 				&mnt->mnt_group_id);
@@ -392,10 +384,7 @@ bypass_orig_flow:
 void mnt_release_group_id(struct mount *mnt)
 {
 	int id = mnt->mnt_group_id;
-<<<<<<< HEAD
-=======
 
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
 	ida_remove(&mnt_group_ida, id);
 	if (mnt_group_start > id)
 		mnt_group_start = id;
@@ -447,8 +436,6 @@ static void drop_mountpoint(struct fs_pin *p)
 #endif
 }
 
-<<<<<<< HEAD
-=======
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 /* A copy of alloc_vfsmnt() but allocates the fake mnt_id for mounts
  * that are unshared by ksu process
@@ -559,7 +546,6 @@ out_free_cache:
 }
 #endif
 
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
 static struct mount *alloc_vfsmnt(const char *name)
 {
 	struct mount *mnt = kmem_cache_zalloc(mnt_cache, GFP_KERNEL);
@@ -1137,8 +1123,6 @@ struct mount *__lookup_mnt(struct vfsmount *mnt, struct dentry *dentry)
 	struct hlist_head *head = m_hash(mnt, dentry);
 	struct mount *p;
 
-<<<<<<< HEAD
-=======
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	// - The hook here is needed as a temp solution to hide sus mnts for zygote_next
 	//   spawned process since it just inherits the init mount namespace, the solution
@@ -1151,7 +1135,6 @@ struct mount *__lookup_mnt(struct vfsmount *mnt, struct dentry *dentry)
 	}
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
 	hlist_for_each_entry_rcu(p, head, mnt_hash)
 #if defined(CONFIG_KDP_NS) || defined(CONFIG_RUSTUH_KDP_NS)
 		if (p->mnt_parent->mnt == mnt && p->mnt_mountpoint == dentry)
@@ -1509,9 +1492,8 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void 
 	if (!type)
 		return ERR_PTR(-ENODEV);
 
-<<<<<<< HEAD
 	mnt = alloc_vfsmnt(name);
-=======
+
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	// - We will just stop checking for ksu process if /sdcard/Android is accessible,
 	//   for the sake of performance
@@ -1528,7 +1510,7 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void 
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 bypass_orig_flow:
 #endif
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
+
 	if (!mnt)
 		return ERR_PTR(-ENOMEM);
 
@@ -1619,9 +1601,8 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 	int nsflags;
 #endif
 
-<<<<<<< HEAD
 	mnt = alloc_vfsmnt(old->mnt_devname);
-=======
+
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	bool is_mnt_ksu_unshared = false;
 
@@ -1656,7 +1637,6 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 bypass_orig_flow:
 #endif
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
 	if (!mnt)
 		return ERR_PTR(-ENOMEM);
 
@@ -1715,8 +1695,6 @@ bypass_orig_flow:
 #else //else for defined(CONFIG_KDP_NS) || defined(CONFIG_RUSTUH_KDP_NS)
 	mnt->mnt.mnt_flags = old->mnt.mnt_flags;
 	mnt->mnt.mnt_flags &= ~(MNT_WRITE_HOLD|MNT_MARKED|MNT_INTERNAL);
-<<<<<<< HEAD
-=======
 
 
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
@@ -1725,7 +1703,6 @@ bypass_orig_flow:
 
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
 	/* Don't allow unprivileged users to change mount flags */
 	if (flag & CL_UNPRIVILEGED) {
 		mnt->mnt.mnt_flags |= MNT_LOCK_ATIME;
@@ -3919,12 +3896,11 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
 	copy_flags = CL_COPY_UNBINDABLE | CL_EXPIRE;
 	if (user_ns != ns->user_ns)
 		copy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;
-<<<<<<< HEAD
-=======
+
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	copy_flags |= CL_COPY_MNT_NS;
 #endif
->>>>>>> 114cb1d73 (susfs: clean re-port v2.3.0 for A325N 4.14)
+
 #if defined(CONFIG_KDP_NS) || defined(CONFIG_RUSTUH_KDP_NS)
 	new = copy_tree(old, old->mnt->mnt_root, copy_flags);
 #else
