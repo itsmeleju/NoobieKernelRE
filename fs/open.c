@@ -440,9 +440,8 @@ retry:
 
 orig_flow:
 	res = filename_lookup(dfd, fname, lookup_flags, &path, NULL);
-	putname(fname);
 #else
- 	res = user_path_at(dfd, filename, lookup_flags, &path);
+	res = user_path_at(dfd, filename, lookup_flags, &path);
 #endif
 	if (res)
 		goto out;

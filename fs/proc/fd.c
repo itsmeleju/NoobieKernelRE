@@ -13,7 +13,6 @@
 #include <linux/fs.h>
 
 #include <linux/proc_fs.h>
-
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs_def.h>
 #endif
