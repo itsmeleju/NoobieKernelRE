@@ -1,8 +1,6 @@
 [submodule "KernelSU"]
 	path = KernelSU
-	url = https://github.com/ReSukiSU/ReSukiSU
-	branch = main
+	url = https://github.com/Baka-SU/BakaSU.git
 [submodule "NoMount"]
 	path = NoMount
 	url = https://github.com/maxsteeel/nomount
-	branch = master
