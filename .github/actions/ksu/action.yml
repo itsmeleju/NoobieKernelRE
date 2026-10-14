@@ -10,7 +10,7 @@ inputs:
   branch:
     description: "Branch, tag, or commit to checkout"
     required: false
-    default: "main"
+    default: "sync-susfs"
 
   target-link:
     description: "Internal driver directory name inside drivers/"
@@ -56,7 +56,7 @@ runs:
         # 1. Install KernelSU
         # ------------------------------------------------------------
           echo "[*] Downloading SU setup.sh..."
-          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -
+          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s sync-susfs
           
         # ------------------------------------------------------------
         # 2. Verify driver directory

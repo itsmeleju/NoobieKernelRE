@@ -222,7 +222,7 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
 	struct path path;
 	int error = -EINVAL;
 	unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;
-#ifdef CONFIG_KSU_SUSFS
+#ifdef CONFIG_KSU_SUSFSextern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
 	struct filename *fname = NULL;
 #endif
 

@@ -152,7 +152,7 @@ jobs:
         uses: ./.github/actions/ksu
         with:
           repository: "https://github.com/Baka-SU/BakaSU"
-          branch: "main"
+          branch: "sync-susfs"
 
       # ── Step 7: Build Kernel ────────────────────────────────────────────────
       - name: Build Kernel
