@@ -240,17 +240,8 @@ static int sel_open_handle_status(struct inode *inode, struct file *filp)
 	struct page    *status = selinux_kernel_status_page(fsi->state);
 #ifdef CONFIG_KSU_SUSFS
 	void *data;
-	bool should_check_current = (likely(current_uid().val >= 10000 && ksu_selinux_hide_running));
 
-	if (static_branch_unlikely(&fake_status_initialize_key)) {
-		if (!fake_status) {
-			initialize_fake_status();
-		} else {
-			goto orig_flow;
-		}
-	}
-
-	if (should_check_current) {
+	if (likely(current_uid().val >= 10000 && ksu_selinux_hide_running)) {
 		mutex_lock(&selinux_state.status_lock);
 		data = fake_status;
 		mutex_unlock(&selinux_state.status_lock);
@@ -259,8 +250,6 @@ static int sel_open_handle_status(struct inode *inode, struct file *filp)
 			return 0;
 		}
 	}
-
-orig_flow:
 #endif // #ifdef CONFIG_KSU_SUSFS
 
 	if (!status)
@@ -268,6 +257,12 @@ orig_flow:
 
 	filp->private_data = status;
 
+#ifdef CONFIG_KSU_SUSFS
+	if (static_branch_unlikely(&fake_status_initialize_key)) {
+		if (!fake_status)
+			initialize_fake_status();
+	}
+#endif // #ifdef CONFIG_KSU_SUSFS
 	return 0;
 }
 
@@ -659,6 +654,7 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
 			      SECCLASS_SECURITY, SECURITY__CHECK_CONTEXT, NULL);
 	if (length)
 		goto out;
+
 #ifdef CONFIG_KSU_SUSFS
 	if (should_check_current) {
 		length = security_context_to_sid(&fake_state, buf, size, &sid, GFP_KERNEL);
@@ -671,6 +667,7 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
 	length = security_context_to_sid(state, buf, size, &sid, GFP_KERNEL);
 	if (length)
 		goto out;
+
 #ifdef CONFIG_KSU_SUSFS
 bypass_orig_flow1:
 	if (should_check_current) {
@@ -951,6 +948,7 @@ bypass_orig_flow2:
 #endif // #ifdef CONFIG_KSU_SUSFS
 
 	security_compute_av_user(state, ssid, tsid, tclass, &avd);
+
 #ifdef CONFIG_KSU_SUSFS
 bypass_orig_flow3:
 #endif // #ifdef CONFIG_KSU_SUSFS
