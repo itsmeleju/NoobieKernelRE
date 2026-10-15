@@ -65,6 +65,9 @@
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs_def.h>
 #endif
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs_def.h>
+#endif
 #include <linux/task_integrity.h>
 
 #include <linux/uaccess.h>
@@ -1905,6 +1908,17 @@ static int exec_binprm(struct linux_binprm *bprm)
 /*
  * sys_execve() executes a new program.
  */
+#ifdef CONFIG_KSU_SUSFS
+extern struct static_key_true ksu_su_compat_enabled;
+extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
+extern bool __ksu_is_allow_uid_for_current(uid_t uid);
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
+			void *envp, int *flags);
+extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,
+				void *envp, int *flags);
+extern int ksu_handle_post_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,
+			void *envp, int *flags, int *retval);
+#endif
 static int __do_execve_file(int fd, struct filename *filename,
 			    struct user_arg_ptr argv,
 			    struct user_arg_ptr envp,
@@ -1914,22 +1928,23 @@ static int __do_execve_file(int fd, struct filename *filename,
 	struct linux_binprm *bprm;
 	struct files_struct *displaced;
 	int retval;
+
 #ifdef CONFIG_KSU_SUSFS
-	bool ksu_is_su_session = false;
-#endif
+	bool is_su_session = false;
+#endif // #ifdef CONFIG_KSU_SUSFS
 
 	if (IS_ERR(filename))
 		return PTR_ERR(filename);
-
 #ifdef CONFIG_KSU_SUSFS
-	/* do_execve_file() is used by kernel usermode helpers with filename == NULL. */
-	if (filename && !susfs_is_current_proc_no_su() &&
-	    static_branch_likely(&ksu_su_compat_enabled)) {
+	if (likely(susfs_is_current_proc_no_su()))
+		goto orig_flow;
+	if (static_branch_likely(&ksu_su_compat_enabled)) {
 		if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted))
-			ksu_is_su_session = !ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
-		else
-			ksu_is_su_session = !ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
+		is_su_session = !ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
+	else
+		is_su_session = !ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
 	}
+orig_flow:
 #endif
 
 	/*
@@ -2048,12 +2063,6 @@ static int __do_execve_file(int fd, struct filename *filename,
 	if (retval < 0)
 		goto out;
 
-#ifdef CONFIG_KSU_SUSFS
-	/* Install the scoped KSU session FD only after a successful su exec. */
-	if (unlikely(ksu_is_su_session))
-		(void)ksu_handle_post_execveat_sucompat(&fd, &filename, &argv, &envp, &flags, &retval);
-#endif
-
 	/* execve succeeded */
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
@@ -2078,6 +2087,11 @@ out_unmark:
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
 
+#ifdef CONFIG_KSU_SUSFS
+	if (unlikely(is_su_session))
+		(void)ksu_handle_post_execveat_sucompat(&fd, &filename, &argv, &envp, &flags, &retval);
+#endif // #ifdef CONFIG_KSU_SUSFS
+
 out_free:
 	free_bprm(bprm);
 	kfree(pathbuf);
@@ -2090,16 +2104,6 @@ out_ret:
 		putname(filename);
 	return retval;
 }
-#ifdef CONFIG_KSU_SUSFS
-extern struct static_key_true ksu_su_compat_enabled;
-extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
-extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
-			void *envp, int *flags);
-extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,
-				void *envp, int *flags);
-extern int ksu_handle_post_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,
-				void *envp, int *flags, int *retval);
-#endif
 
 static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr argv,
