@@ -5,4 +5,4 @@
 [submodule "KernelSU"]
 	path = KernelSU
 	url = https://github.com/Baka-SU/BakaSU.git
-	branch = main
+	branch = sync-susfs
