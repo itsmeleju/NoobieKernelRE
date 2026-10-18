@@ -10,7 +10,7 @@ on:
       defconfig:
         description: "Kernel defconfig name"
         required: true
-        default: "Noobie_SU_defconfig"
+        default: "Noobie_SUSFS_defconfig"
       zip_name:
         description: 'AK3 zip naming for easy kernel identifying'
         required: false
@@ -25,8 +25,8 @@ on:
           - r32p
       nomount:
         description: "No-Mount Integration"
-        required: false
-        default: "disabled"
+        required: true
+        default: "enabled"
         type: choice
         options:
           - enabled
@@ -42,18 +42,18 @@ on:
       localversion:
         description: "CONFIG_LOCALVERSION value"
         required: false
-        default: "-ver.1.8-GA"
+        default: "-ver.1.5-GA"
 
 env:
   # ── Global Editable Build Configuration ─────────────────────────────────────
   TOOLCHAIN_LINK: "${{ github.event.inputs.toolchain_link || 'https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20260619-release/Clang-14.0.6-20260619.tar.gz' }}"
-  DEFCONFIG: "${{ github.event.inputs.defconfig || 'Noobie_SU_defconfig' }}"
+  DEFCONFIG: "${{ github.event.inputs.defconfig || 'Noobie_SUSFS_defconfig' }}"
   GPU_DRIVER: "${{ github.event.inputs.gpu_driver || 'r25p' }}"
   ksu: "${{ github.event.inputs.ksu || 'enabled' }}"
-  CONFIG_LOCALVERSION: "${{ github.event.inputs.localversion || '-ver.1.8-GA' }}"
+  CONFIG_LOCALVERSION: "${{ github.event.inputs.localversion || '-ver.1.5-GA' }}"
   ARCH: arm64
   SUBARCH: arm64
-  DEFCONFIG_NAME: "${{ github.event.inputs.defconfig || 'Noobie_SU_defconfig' }}"
+  DEFCONFIG_NAME: "${{ github.event.inputs.defconfig || 'Noobie_SUSFS_defconfig' }}"
   DEFCONFIG_PATH: arch/arm64/configs/${{ github.event.inputs.defconfig }}
 
 jobs:
@@ -152,7 +152,7 @@ jobs:
         uses: ./.github/actions/ksu
         with:
           repository: "https://github.com/Baka-SU/BakaSU"
-          branch: "main"
+          branch: "sync-susfs"
 
       # ── Step 7: Build Kernel ────────────────────────────────────────────────
       - name: Build Kernel
