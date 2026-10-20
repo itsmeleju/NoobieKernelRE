@@ -138,7 +138,7 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 	if (inode->i_op->getattr)
 		return inode->i_op->getattr(path, stat, request_mask,
 					    query_flags);
-#endif
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 
 	generic_fillattr(inode, stat);
 	return 0;
@@ -275,13 +275,14 @@ orig_flow:
 
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 	if (stat->result_mask & (STATX_SUS_KSTAT_FUSE | STATX_SUS_KSTAT)) {
-		stat->result_mask &= ~(STATX_SUS_KSTAT_FUSE |
-				       STATX_SUS_KSTAT);
-	} else
-#endif
-	{
-		stat->mnt_id = real_mount(path.mnt)->mnt_id;
+		stat->result_mask &= ~(STATX_SUS_KSTAT_FUSE | STATX_SUS_KSTAT);
+		goto bypass_orig_flow;
 	}
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+        stat->mnt_id = real_mount(path.mnt)->mnt_id;
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+bypass_orig_flow:
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 	path_put(&path);
 	if (retry_estale(error, lookup_flags)) {
 		lookup_flags |= LOOKUP_REVAL;
