@@ -27,7 +27,7 @@
 #include <linux/compiler.h>
 #ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
 #include <linux/susfs_def.h>
-#endif
+#endif // #ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
 #include <asm/sections.h>
 
 #ifdef CONFIG_KALLSYMS_ALL
@@ -622,13 +622,13 @@ static int s_show(struct seq_file *m, void *p)
 		 */
 		type = iter->exported ? toupper(iter->type) :
 					tolower(iter->type);
+
 		seq_printf(m, "%pK %c %s\t[%s]\n", (void *)iter->value,
 			   type, iter->name, iter->module_name);
 	} else
-
 #ifndef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-		seq_printf(m, "%pK %c %s\n", (void *)iter->value,
-			   iter->type, iter->name);
+ 		seq_printf(m, "%px %c %s\n", value,
+ 			   iter->type, iter->name);
 #else
 	{
 		if (susfs_starts_with(iter->name, "ksu_") ||
@@ -652,7 +652,7 @@ static int s_show(struct seq_file *m, void *p)
 		{
 			return 0;
 		}
-		seq_printf(m, "%pK %c %s\n", (void *)iter->value,
+		seq_printf(m, "%px %c %s\n", value,
 			   iter->type, iter->name);
 	}
 #endif

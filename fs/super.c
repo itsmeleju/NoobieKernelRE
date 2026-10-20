@@ -36,13 +36,10 @@
 #include <linux/fsnotify.h>
 #include <linux/lockdep.h>
 #include <linux/user_namespace.h>
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-#include <linux/susfs_def.h>
 #include <linux/jump_label.h>
-
-extern bool susfs_is_current_ksu_domain(void);
-extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
-#endif
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs_def.h>
+#endif // #ifdef CONFIG_KSU_SUSFS
 #include "internal.h"
 
 /* @fs.sec -- 89e449513e5bea6196d9aaf62a6936ae -- */
@@ -976,12 +973,16 @@ void emergency_remount(void)
  */
 
 static DEFINE_IDA(unnamed_dev_ida);
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+extern bool susfs_is_current_ksu_domain(void);
+extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 static DEFINE_SPINLOCK(unnamed_dev_lock);/* protects the above */
 /* Many userspace utilities consider an FSID of 0 invalid.
  * Always return at least 1 from get_anon_bdev.
  */
-static int unnamed_dev_start = 1;
 
+static int unnamed_dev_start = 1;
 int get_anon_bdev(dev_t *p)
 {
 	int dev;
@@ -989,10 +990,20 @@ int get_anon_bdev(dev_t *p)
 	int min_dev = 0;
 
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted) &&
-	    susfs_is_current_ksu_domain())
-		min_dev = DEFAULT_KSU_MNT_MINOR_DEV;
-#endif
+	if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted)) {
+		if (susfs_is_current_ksu_domain()) {
+			dev = ida_alloc_range(&unnamed_dev_ida, DEFAULT_KSU_MNT_MINOR_DEV, (1 << MINORBITS) - 1,
+				GFP_ATOMIC);
+			if (dev == -ENOSPC)
+				dev = -EMFILE;
+			if (dev < 0)
+				return dev;
+
+			*p = MKDEV(0, dev);
+			return 0;
+		}
+	}
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 
  retry:
 	if (ida_pre_get(&unnamed_dev_ida, GFP_ATOMIC) == 0)

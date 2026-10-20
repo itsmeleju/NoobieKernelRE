@@ -100,7 +100,10 @@
 #include "avc_ss.h"
 
 struct selinux_state selinux_state;
-
+#ifdef CONFIG_KSU_SUSFS
+extern bool ksu_selinux_hide_running __read_mostly;
+extern int my_setprocattr(const char *name, void *value, size_t size);
+#endif // #ifdef CONFIG_KSU_SUSFS
 
 #ifdef CONFIG_KDP_NS
 extern unsigned int cmp_ns_integrity(void);
@@ -6432,6 +6435,16 @@ abort_change:
 	abort_creds(new);
 	return error;
 }
+#ifdef CONFIG_KSU_SUSFS
+static int handle_selinux_setprocattr(const char *name, void *value, size_t size)
+{
+	if ((likely(!strcmp(name, "current") &&
+				current_uid().val >= 10000 &&
+				ksu_selinux_hide_running)))
+		return my_setprocattr(name, value, size);
+	return selinux_setprocattr(name, value, size);
+}
+#endif // #ifdef CONFIG_KSU_SUSFS
 
 static int selinux_ismaclabel(const char *name)
 {
@@ -6977,8 +6990,11 @@ static struct security_hook_list selinux_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(d_instantiate, selinux_d_instantiate),
 
 	LSM_HOOK_INIT(getprocattr, selinux_getprocattr),
-	LSM_HOOK_INIT(setprocattr, selinux_setprocattr),
-
+#ifdef CONFIG_KSU_SUSFS
+	LSM_HOOK_INIT(setprocattr, handle_selinux_setprocattr),
+#else
+ 	LSM_HOOK_INIT(setprocattr, selinux_setprocattr),
+#endif // #ifdef CONFIG_KSU_SUSFS
 	LSM_HOOK_INIT(ismaclabel, selinux_ismaclabel),
 	LSM_HOOK_INIT(secctx_to_secid, selinux_secctx_to_secid),
 	LSM_HOOK_INIT(release_secctx, selinux_release_secctx),

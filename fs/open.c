@@ -365,9 +365,9 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
 #ifdef CONFIG_KSU_SUSFS
 extern struct static_key_true ksu_su_compat_enabled;
 extern bool __ksu_is_allow_uid_for_current(uid_t uid);
-extern int ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode,
-             int *flags);
+extern int ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode, int *__unused_flags);
 #endif
+
 SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 {
 	const struct cred *old_cred;
@@ -377,7 +377,6 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 	struct vfsmount *mnt;
 	int res;
 	unsigned int lookup_flags = LOOKUP_FOLLOW;
-
 #ifdef CONFIG_KSU_SUSFS
 	struct filename *fname = NULL;
 #endif
@@ -438,7 +437,7 @@ orig_flow:
 	res = filename_lookup(dfd, fname, lookup_flags, &path, NULL);
 	// no putname(fname) here as filename_lookup() has it done for us already;
 #else
-	res = user_path_at(dfd, filename, lookup_flags, &path);
+ 	res = user_path_at(dfd, filename, lookup_flags, &path);
 #endif
 	if (res)
 		goto out;
