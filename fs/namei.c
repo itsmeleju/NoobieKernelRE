@@ -5193,11 +5193,13 @@ extern int susfs_open_redirect_spoof_vfs_readlink(struct inode *inode, char __us
 int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 {
 	struct inode *inode = d_inode(dentry);
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+	int res;
+#endif
 
 	if (unlikely(!(inode->i_opflags & IOP_DEFAULT_READLINK))) {
 		if (unlikely(inode->i_op->readlink)) {
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-			int res;
 			if (SUSFS_IS_INODE_OPEN_REDIRECT(inode)) {
 				res = susfs_open_redirect_spoof_vfs_readlink(inode, buffer, buflen);
 				if (!res)
