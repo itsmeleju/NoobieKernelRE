@@ -95,10 +95,8 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 		bool is_fuse = false;
 		if (susfs_is_inode_sus_kstat(d_backing_inode(path->dentry), &is_fuse)) {
 			if (!is_fuse) {
-				stat->mnt_id = real_mount(path->mnt)->mnt_id;
 				stat->result_mask |= STATX_SUS_KSTAT;
 			}
-			stat->mnt_id = real_mount(path->mnt)->mnt_id;
 			stat->result_mask |= STATX_SUS_KSTAT_FUSE;
 		}
 	}
@@ -272,17 +270,19 @@ orig_flow:
 		goto out;
 
 	error = vfs_getattr(&path, stat, request_mask, flags);
-
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 	if (stat->result_mask & (STATX_SUS_KSTAT_FUSE | STATX_SUS_KSTAT)) {
 		stat->result_mask &= ~(STATX_SUS_KSTAT_FUSE | STATX_SUS_KSTAT);
 		goto bypass_orig_flow;
 	}
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-        stat->mnt_id = real_mount(path.mnt)->mnt_id;
+
+// Remove or comment out: stat->mnt_id = real_mount(path.mnt)->mnt_id;
+
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 bypass_orig_flow:
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	stat->result_mask |= STATX_MNT_ID;
 	path_put(&path);
 	if (retry_estale(error, lookup_flags)) {
 		lookup_flags |= LOOKUP_REVAL;
