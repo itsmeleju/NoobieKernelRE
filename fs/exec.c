@@ -1915,6 +1915,17 @@ static int __do_execve_file(int fd, struct filename *filename,
 	struct files_struct *displaced;
 	int retval;
 #ifdef CONFIG_KSU_SUSFS
+	bool is_su_session = false;
+#ifndef KSU_NO_PREINIT
+	bool is_ksu_preinit_session = false;
+	int preinit_fd = 0;
+#endif // #ifndef KSU_NO_PREINIT
+#endif // #ifdef CONFIG_KSU_SUSFS
+
+	if (IS_ERR(filename))
+		return PTR_ERR(filename);
+
+#ifdef CONFIG_KSU_SUSFS
 	if (likely(susfs_is_current_proc_no_su()))
 		goto orig_flow;
 
@@ -2129,13 +2140,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr envp,
 			      int flags)
 {
-#ifdef CONFIG_KSU_SUSFS
-	bool is_su_session = false;
-#ifndef KSU_NO_PREINIT
-	bool is_ksu_preinit_session = false;
-	int preinit_fd = 0;
-#endif // #ifndef KSU_NO_PREINIT
-#endif // #ifdef CONFIG_KSU_SUSFS
+	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
 }
 
 int do_execve_file(struct file *file, void *__argv, void *__envp)
