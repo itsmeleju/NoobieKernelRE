@@ -282,7 +282,6 @@ orig_flow:
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 bypass_orig_flow:
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-	stat->result_mask |= STATX_MNT_ID;
 	path_put(&path);
 	if (retry_estale(error, lookup_flags)) {
 		lookup_flags |= LOOKUP_REVAL;
