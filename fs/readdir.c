@@ -636,7 +636,6 @@ COMPAT_SYSCALL_DEFINE3(getdents, unsigned int, fd,
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	buf.sb = f.file->f_inode->i_sb;
 #endif
-
 	error = iterate_dir(f.file, &buf.ctx);
 	if (error >= 0)
 		error = buf.error;
@@ -648,10 +647,6 @@ COMPAT_SYSCALL_DEFINE3(getdents, unsigned int, fd,
 			error = count - buf.count;
 	}
 	fdput_pos(f);
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	if (!path_err)
-		path_put(&path);
-#endif
 	return error;
 }
 #endif
