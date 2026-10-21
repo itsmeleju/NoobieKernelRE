@@ -5195,20 +5195,18 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 	struct inode *inode = d_inode(dentry);
 
 	if (unlikely(!(inode->i_opflags & IOP_DEFAULT_READLINK))) {
-		if (unlikely(inode->i_op->readlink))
+		if (unlikely(inode->i_op->readlink)) {
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-		{
+			int res;
 			if (SUSFS_IS_INODE_OPEN_REDIRECT(inode)) {
 				res = susfs_open_redirect_spoof_vfs_readlink(inode, buffer, buflen);
 				if (!res)
 					return res;
 			}
-			return inode->i_op->readlink(dentry, buffer, buflen);
-		}
-#else
- 			return inode->i_op->readlink(dentry, buffer, buflen);
 #endif
 			return inode->i_op->readlink(dentry, buffer, buflen);
+		}
+
 		if (!d_is_symlink(dentry))
 			return -EINVAL;
 
