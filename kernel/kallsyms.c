@@ -631,6 +631,7 @@ static int s_show(struct seq_file *m, void *p)
  			   iter->type, iter->name);
 #else
 	{
+		void *value = (void *)iter->value;
 		if (susfs_starts_with(iter->name, "ksu_") ||
 			susfs_starts_with(iter->name, "__ksu_") ||
 			susfs_starts_with(iter->name, "susfs_") ||
