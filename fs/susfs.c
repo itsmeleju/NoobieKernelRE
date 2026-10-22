@@ -1,4 +1,4 @@
-#include <linux/version.h>
+f#include <linux/version.h>
 #include <linux/cred.h>
 #include <linux/fs.h>
 #include <linux/slab.h>
@@ -1444,7 +1444,7 @@ static int susfs_handle_sdcard_inode_event(struct fsnotify_mark *mark, u32 mask,
 }
 
 static const struct fsnotify_ops fsnotify_ops = {
-	.handle_inode_event = susfs_handle_sdcard_inode_event,
+	.handle_event = susfs_handle_sdcard_inode_event,
 };
 
 static int add_mark_on_inode(struct inode *inode, u32 mask,
