@@ -70,6 +70,31 @@ runs:
         fi
 
         echo "[✓] SU driver found at ${TARGET_DIR}"
+        
+        echo "==> Checking for custom selinux_hide.c override file..."
+    
+ 	# Define paths (adjust paths if your source structure differs)
+    	OVERRIDE_SOURCE="path/to/your/custom_selinux_hide.c"
+    	TARGET_FILE="KernelSU/kernel/feature/selinux_hide.c"
+    
+    	# Check if the override file exists in your repository or patch folder
+   	if [ -f "$OVERRIDE_SOURCE" ]; then
+    	  echo "[+] Found override file: $OVERRIDE_SOURCE"
+      
+    	# Ensure target directory exists
+      	mkdir -p "$(dirname "$TARGET_FILE")"
+      
+      	# Replace/override the file
+      	cp -f "$OVERRIDE_SOURCE" "$TARGET_FILE"
+     	echo "[+] Successfully replaced $TARGET_FILE with custom override."
+    	else
+      		echo "--------------------------------------------------------"
+      		echo "[-] ERROR: Required override file '$OVERRIDE_SOURCE' not found!"
+      		echo "[-] Compilation aborted due to missing required patch file."
+      		echo "--------------------------------------------------------"
+      	exit 1
+    	fi
+	  
 
         # ------------------------------------------------------------
         # 3. Detect SU commit/version
