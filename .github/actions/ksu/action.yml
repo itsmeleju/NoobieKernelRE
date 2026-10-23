@@ -67,8 +67,8 @@ runs:
         echo "==> Checking for custom selinux_hide.c override file..."
 
         # Define paths (adjust paths if your source structure differs)
-        OVERRIDE_SOURCE="path/to/your/custom_selinux_hide.c"
-        TARGET_FILE="${TARGET_DIR}/kernel/feature/selinux_hide.c"
+        OVERRIDE_SOURCE=".github/actions/ksu/selinux_hide.c"
+        TARGET_FILE="drivers/kernelsu/kernel/feature/selinux_hide.c"
 
         # Check if the override file exists in your repository or patch folder
         if [ -f "$OVERRIDE_SOURCE" ]; then
