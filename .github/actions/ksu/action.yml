@@ -10,21 +10,17 @@ inputs:
   branch:
     description: "Branch, tag, or commit to checkout"
     required: false
-    default: "sync-susf"
+    default: "sync-susfs"
 
   target-link:
     description: "Internal driver directory name inside drivers/"
     required: false
     default: "kernelsu"
 
-  DEFCONFIG_PATH-path:
-    description: "Path to the kernel defconfig"
-    required: true
-    
   defconfig:
-        description: "Kernel defconfig name"
-        required: true
-        default: "Noobie_SUSFS_defconfig"
+    description: "Kernel defconfig name"
+    required: true
+    default: "Noobie_SUSFS_defconfig"
 
 outputs:
   ksu-version:
@@ -50,18 +46,16 @@ runs:
         echo "[*] Repository     : ${REPO_URL}"
         echo "[*] Ref            : ${BRANCH}"
         echo "[*] Driver Path    : ${TARGET_DIR}"
-        echo "[*] Defconfig      : ${DEFCONFIG_PATH}"
 
         # ------------------------------------------------------------
         # 1. Install KernelSU
         # ------------------------------------------------------------
-          echo "[*] Downloading SU setup.sh..."
-          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s sync-susfs
-          
-        # ------------------------------------------------------------
-        # 2. Verify driver directory
-        # ------------------------------------------------------------
+        echo "[*] Downloading SU setup.sh..."
+        curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s "${BRANCH}"
 
+        # ------------------------------------------------------------
+        # 2. Verify driver directory & Apply Override
+        # ------------------------------------------------------------
         if [ ! -d "${TARGET_DIR}" ]; then
           echo "[!] ERROR: ${TARGET_DIR} was not created."
           echo "[!] Existing drivers/kernelsu directories:"
@@ -70,36 +64,33 @@ runs:
         fi
 
         echo "[✓] SU driver found at ${TARGET_DIR}"
-        
         echo "==> Checking for custom selinux_hide.c override file..."
-    
- 	# Define paths (adjust paths if your source structure differs)
-    	OVERRIDE_SOURCE="path/to/your/custom_selinux_hide.c"
-    	TARGET_FILE="KernelSU/kernel/feature/selinux_hide.c"
-    
-    	# Check if the override file exists in your repository or patch folder
-   	if [ -f "$OVERRIDE_SOURCE" ]; then
-    	  echo "[+] Found override file: $OVERRIDE_SOURCE"
-      
-    	# Ensure target directory exists
-      	mkdir -p "$(dirname "$TARGET_FILE")"
-      
-      	# Replace/override the file
-      	cp -f "$OVERRIDE_SOURCE" "$TARGET_FILE"
-     	echo "[+] Successfully replaced $TARGET_FILE with custom override."
-    	else
-      		echo "--------------------------------------------------------"
-      		echo "[-] ERROR: Required override file '$OVERRIDE_SOURCE' not found!"
-      		echo "[-] Compilation aborted due to missing required patch file."
-      		echo "--------------------------------------------------------"
-      	exit 1
-    	fi
-	  
+
+        # Define paths (adjust paths if your source structure differs)
+        OVERRIDE_SOURCE="path/to/your/custom_selinux_hide.c"
+        TARGET_FILE="${TARGET_DIR}/kernel/feature/selinux_hide.c"
+
+        # Check if the override file exists in your repository or patch folder
+        if [ -f "$OVERRIDE_SOURCE" ]; then
+          echo "[+] Found override file: $OVERRIDE_SOURCE"
+          
+          # Ensure target directory exists
+          mkdir -p "$(dirname "$TARGET_FILE")"
+          
+          # Replace/override the file
+          cp -f "$OVERRIDE_SOURCE" "$TARGET_FILE"
+          echo "[+] Successfully replaced $TARGET_FILE with custom override."
+        else
+          echo "--------------------------------------------------------"
+          echo "[-] ERROR: Required override file '$OVERRIDE_SOURCE' not found!"
+          echo "[-] Compilation aborted due to missing required patch file."
+          echo "--------------------------------------------------------"
+          exit 1
+        fi
 
         # ------------------------------------------------------------
         # 3. Detect SU commit/version
         # ------------------------------------------------------------
-
         SU_COMMIT="unknown"
         SU_BRANCH="unknown"
 
@@ -129,9 +120,8 @@ runs:
         echo "ksu_ver=${SU_COMMIT}" >> "$GITHUB_OUTPUT"
 
         # ------------------------------------------------------------
-        # 5. Verify Makefile integration
+        # 4. Verify Makefile integration
         # ------------------------------------------------------------
-
         echo "[*] Checking drivers/Makefile..."
 
         if grep -Eq \
@@ -151,9 +141,8 @@ runs:
         fi
 
         # ------------------------------------------------------------
-        # 7. Verify defconfig
+        # 5. Verify defconfig
         # ------------------------------------------------------------
-
         DEFCONFIG_NAME="${{ inputs.defconfig }}"
         DEFCONFIG_PATH="arch/arm64/configs/${DEFCONFIG_NAME}"
 
@@ -162,15 +151,14 @@ runs:
 
         if [ ! -f "${DEFCONFIG_PATH}" ]; then
             echo "[!] ERROR: Defconfig not found:"
-            echo "    ${DEFCONFIG}"
+            echo "    ${DEFCONFIG_PATH}"
             exit 1
         fi
         echo "[✓] Defconfig found: ${DEFCONFIG_PATH}"
 
         # ------------------------------------------------------------
-        # 8. Enable CONFIG_KSU
+        # 6. Enable CONFIG_KSU
         # ------------------------------------------------------------
-
         echo "[*] Enabling CONFIG_KSU..."
 
         # Remove old CONFIG_KSU entries.
@@ -187,28 +175,21 @@ runs:
         echo "[✓] CONFIG_KSU=y added to ${DEFCONFIG_PATH}"
 
         # ------------------------------------------------------------
-        # 10. Final verification
+        # 7. Final verification
         # ------------------------------------------------------------
-
         echo
         echo "========== KernelSU Integration =========="
-
         echo "[*] Driver:"
         echo "    ${TARGET_DIR}"
-
         echo "[*] Commit:"
         echo "    ${SU_COMMIT}"
-
         echo "[*] Defconfig:"
         echo "    ${DEFCONFIG_PATH}"
-
         echo "[*] Configuration:"
         grep -E \
           '^CONFIG_KSU(=|_)' \
           "${DEFCONFIG_PATH}" || true
-
         echo "=========================================="
-
         echo "[✓] SU integration completed successfully."
 
         echo "::endgroup::"
@@ -216,7 +197,6 @@ runs:
         # ------------------------------------------------------------
         # GitHub Step Summary
         # ------------------------------------------------------------
-
         cat >> "$GITHUB_STEP_SUMMARY" << EOF
         ### SU Integration Summary
 
