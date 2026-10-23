@@ -1035,16 +1035,13 @@ bypass_orig_flow:
 				break;
 
 			/* Case 1 above */
-			if (vma->vm_start >= last_vma_end)
+			if (vma->vm_start >= last_vma_end) {
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
-			{
 				if (!vma->vm_file || !(SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file))))
-					smap_gather_stats(vma, &mss, last_vma_end);
-			}
-#else
- 				smap_gather_stats(vma, &mss, last_vma_end);
-#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
+#endif
+					smap_gather_stats(vma, &mss);
 				continue;
+			}
 		}
 		/* Case 2 above */
 		vma = vma->vm_next;
