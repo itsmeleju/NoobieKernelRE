@@ -1,4 +1,4 @@
-name: NoobieThingZ Kernel Builder v3
+name: NoobieThingZ Kernel Builder v4
 
 on:
   workflow_dispatch:
@@ -153,7 +153,7 @@ jobs:
         with:
           repository: "https://github.com/Baka-SU/BakaSU"
           branch: "main"
-	  patch_path: "BakaSU-SUSFS/0001-a325x-linux414-integration.patch"
+		  
 
       # ── Step 7: Build Kernel ────────────────────────────────────────────────
       - name: Build Kernel
