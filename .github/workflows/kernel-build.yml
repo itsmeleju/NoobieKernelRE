@@ -55,6 +55,7 @@ env:
   SUBARCH: arm64
   DEFCONFIG_NAME: "${{ github.event.inputs.defconfig || 'Noobie_SUSFS_defconfig' }}"
   DEFCONFIG_PATH: arch/arm64/configs/${{ github.event.inputs.defconfig }}
+  patch_path: "BakaSU-SUSFS/0001-a325x-linux414-integration.patch"
 
 jobs:
   build-kernel:
