@@ -7,10 +7,15 @@ inputs:
     required: false
     default: "https://github.com/Baka-SU/BakaSU"
 
+  patch_path:
+    description: 'Path to the patch file relative to workspace'
+    required: true
+    default: 'BakaSU-SUSFS/0001-a325x-linux414-integration.patch'
+
   branch:
     description: "Branch, tag, or commit to checkout"
     required: false
-    default: "sync-susf"
+    default: "main"
 
   target-link:
     description: "Internal driver directory name inside drivers/"
@@ -38,6 +43,7 @@ runs:
     - name: Integrate KSU Driver
       id: integrate
       shell: bash
+	PATCH_FILE: "${{ github.workspace }}/${{ inputs.patch_path }}"
       run: |
         echo "::group::KernelSU / SU Integration"
         set -euo pipefail
@@ -56,7 +62,7 @@ runs:
         # 1. Install KernelSU
         # ------------------------------------------------------------
           echo "[*] Downloading SU setup.sh..."
-          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s sync-susfs
+          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash
           
         # ------------------------------------------------------------
         # 2. Verify driver directory
@@ -141,6 +147,36 @@ runs:
             exit 1
         fi
         echo "[✓] Defconfig found: ${DEFCONFIG_PATH}"
+
+        # ------------------------------------------------------------
+        # 7.1 Integrate SUSFS
+        # ------------------------------------------------------------
+
+	echo "======================================================"
+        echo "🚀 Starting BakaSU Preparation Workflow"
+        echo "📂 Current Working Directory: $(pwd)"
+        echo "======================================================"
+
+	echo "🔍 Checking for prepare_bakasu.sh script..."
+        if [ -f "./prepare_bakasu.sh" ]; then
+          echo "✅ Found prepare_bakasu.sh. Ensuring executable permissions..."
+          chmod +x ./prepare_bakasu.sh
+        else
+          echo "❌ Error: prepare_bakasu.sh not found in root directory!"
+          exit 1
+        fi
+	# Pass inputs or workspace-aware variables if your script needs them
+        
+        echo "------------------------------------------------------"
+        echo "⚙️ Executing script with patch target: $PATCH_FILE"
+        echo "------------------------------------------------------"
+        
+        # Execute the script
+        ./prepare_bakasu.sh
+        
+        echo "------------------------------------------------------"
+        echo "✨ Script execution completed successfully!"
+        echo "------------------------------------------------------"
 
         # ------------------------------------------------------------
         # 8. Enable CONFIG_KSU

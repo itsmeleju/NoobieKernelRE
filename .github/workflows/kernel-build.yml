@@ -152,7 +152,8 @@ jobs:
         uses: ./.github/actions/ksu
         with:
           repository: "https://github.com/Baka-SU/BakaSU"
-          branch: "sync-susfs"
+          branch: "main"
+	  patch_path: "BakaSU-SUSFS/0001-a325x-linux414-integration.patch"
 
       # ── Step 7: Build Kernel ────────────────────────────────────────────────
       - name: Build Kernel
