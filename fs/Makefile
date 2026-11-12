@@ -140,4 +140,3 @@ obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
 obj-$(CONFIG_EROFS_FS)		+= erofs/
 
 
-obj-$(CONFIG_NOMOUNT) += nomount/
