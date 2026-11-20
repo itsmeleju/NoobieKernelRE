@@ -10,7 +10,7 @@ inputs:
   branch:
     description: "Branch, tag, or commit to checkout"
     required: false
-    default: "main"
+    default: "sync-up"
 
   target-link:
     description: "Internal driver directory name inside drivers/"
@@ -19,17 +19,21 @@ inputs:
 
   DEFCONFIG_PATH-path:
     description: "Path to the kernel defconfig"
-    required: true
-    
+    required: false
+    default: ""
+
   defconfig:
-        description: "Kernel defconfig name"
-        required: true
-        default: "Noobie_SU_defconfig"
+    description: "Kernel defconfig name"
+    required: true
+    default: "Noobie_SU_defconfig"
 
 outputs:
   ksu-version:
     description: "Detected KernelSU/SU commit hash"
     value: "${{ steps.integrate.outputs.ksu_ver }}"
+  ksu-version-code:
+    description: "Detected KSU_VERSION code"
+    value: "${{ steps.integrate.outputs.ksu_version_code }}"
 
 runs:
   using: "composite"
@@ -46,22 +50,24 @@ runs:
         BRANCH="${{ inputs.branch }}"
         TARGET_LINK="${{ inputs.target-link }}"
         TARGET_DIR="drivers/${TARGET_LINK}"
+        DEFCONFIG_NAME="${{ inputs.defconfig }}"
+        DEFCONFIG_PATH="arch/arm64/configs/${DEFCONFIG_NAME}"
 
         echo "[*] Repository     : ${REPO_URL}"
-        echo "[*] Ref            : ${BRANCH}"
+        echo "[*] Requested Ref  : ${BRANCH}"
         echo "[*] Driver Path    : ${TARGET_DIR}"
         echo "[*] Defconfig      : ${DEFCONFIG_PATH}"
 
         # ------------------------------------------------------------
         # 1. Install KernelSU
         # ------------------------------------------------------------
-          echo "[*] Downloading SU setup.sh..."
+        echo "[*] Downloading SU setup.sh..."
+        curl -LSs "${REPO_URL/github.com/raw.githubusercontent.com}/${BRANCH}/kernel/setup.sh" | bash -s "${BRANCH}" || \
           curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -
-          
+
         # ------------------------------------------------------------
         # 2. Verify driver directory
         # ------------------------------------------------------------
-
         if [ ! -d "${TARGET_DIR}" ]; then
           echo "[!] ERROR: ${TARGET_DIR} was not created."
           echo "[!] Existing drivers/kernelsu directories:"
@@ -72,11 +78,11 @@ runs:
         echo "[✓] SU driver found at ${TARGET_DIR}"
 
         # ------------------------------------------------------------
-        # 3. Detect SU commit/version
+        # 3. Detect SU commit, branch & KSU_VERSION
         # ------------------------------------------------------------
-
         SU_COMMIT="unknown"
-        SU_BRANCH="unknown"
+        SU_BRANCH="${BRANCH}"
+        KSU_VER_CODE="unknown"
 
         echo "[*] Checking SU version..."
 
@@ -84,121 +90,86 @@ runs:
 
         if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
           SU_COMMIT="$(git rev-parse --short HEAD)"
-          SU_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-
-          echo "[✓] SU Branch : ${SU_BRANCH}"
-          echo "[✓] SU Commit : ${SU_COMMIT}"
+          DETECTED_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+          if [ "${DETECTED_BRANCH}" != "HEAD" ]; then
+            SU_BRANCH="${DETECTED_BRANCH}"
+          fi
+          # Calculate KSU_VERSION matching Kbuild: 30000 + $(git rev-list --count HEAD) + 700
+          COMMIT_COUNT="$(git rev-list --count HEAD 2>/dev/null || echo "")"
+          if [ -n "${COMMIT_COUNT}" ]; then
+            KSU_VER_CODE=$((30000 + COMMIT_COUNT + 700))
+          fi
         else
           echo "[i] SU installed as a static directory."
         fi
 
-        if [ -f "kernel/Makefile" ]; then
-          echo "[*] KernelSU version information:"
-          grep -E "KSU_VERSION|DKSU_VERSION|VERSION" \
-            kernel/Makefile || true
+        # Fallback: parse KSU_VERSION from Kbuild or kernel/Makefile if still unknown
+        if [ "${KSU_VER_CODE}" = "unknown" ]; then
+          for mf in "kernel/Kbuild" "Kbuild" "kernel/Makefile" "Makefile"; do
+            if [ -f "$mf" ]; then
+              RAW_CALC=$(grep -E 'KSU_VERSION\s*:?=' "$mf" | head -n 1 || true)
+              if [ -n "$RAW_CALC" ]; then
+                KSU_VER_CODE="$RAW_CALC"
+                break
+              fi
+            fi
+          done
         fi
+
+        echo "[✓] SU Branch   : ${SU_BRANCH}"
+        echo "[✓] SU Commit   : ${SU_COMMIT}"
+        echo "[✓] KSU Version : ${KSU_VER_CODE}"
 
         popd > /dev/null
 
-        # Export output
+        # Export outputs
         echo "ksu_ver=${SU_COMMIT}" >> "$GITHUB_OUTPUT"
+        echo "ksu_version_code=${KSU_VER_CODE}" >> "$GITHUB_OUTPUT"
 
         # ------------------------------------------------------------
-        # 5. Verify Makefile integration
+        # 4. Verify Makefile integration
         # ------------------------------------------------------------
-
         echo "[*] Checking drivers/Makefile..."
 
-        if grep -Eq \
-          "obj-\$\(CONFIG_KSU\)[[:space:]]*\+=[[:space:]]*${TARGET_LINK}/" \
-          drivers/Makefile; then
-
+        if grep -Eq "obj-\$\(CONFIG_KSU\)[[:space:]]*\+=[[:space:]]*${TARGET_LINK}/" drivers/Makefile; then
           echo "[✓] drivers/Makefile already contains KSU binding"
-
         else
-
           echo "[*] Adding KSU Makefile binding..."
-
-          printf '\nobj-$(CONFIG_KSU) += %s/\n' "${TARGET_LINK}" \
-            >> drivers/Makefile
-
+          printf '\nobj-$(CONFIG_KSU) += %s/\n' "${TARGET_LINK}" >> drivers/Makefile
           echo "[✓] KSU Makefile binding added"
         fi
 
         # ------------------------------------------------------------
-        # 7. Verify defconfig
+        # 5. Verify & update defconfig
         # ------------------------------------------------------------
-
-        DEFCONFIG_NAME="${{ inputs.defconfig }}"
-        DEFCONFIG_PATH="arch/arm64/configs/${DEFCONFIG_NAME}"
-
-        echo "[*] Checking target defconfig..."
-        echo "[*] Target: ${DEFCONFIG_PATH}"
+        echo "[*] Checking target defconfig: ${DEFCONFIG_PATH}"
 
         if [ ! -f "${DEFCONFIG_PATH}" ]; then
-            echo "[!] ERROR: Defconfig not found:"
-            echo "    ${DEFCONFIG}"
-            exit 1
+          echo "[!] ERROR: Defconfig not found: ${DEFCONFIG_PATH}"
+          exit 1
         fi
         echo "[✓] Defconfig found: ${DEFCONFIG_PATH}"
 
-        # ------------------------------------------------------------
-        # 8. Enable CONFIG_KSU
-        # ------------------------------------------------------------
-
         echo "[*] Enabling CONFIG_KSU..."
-
-        # Remove old CONFIG_KSU entries.
-        sed -i '/^[#[:space:]]*CONFIG_KSU[=[:space:]]/d' \
-          "${DEFCONFIG_PATH}"
-
-        sed -i '/^CONFIG_KSU=/d' \
-          "${DEFCONFIG_PATH}"
-
-        # Add KSU.
-        printf '\n# KernelSU\nCONFIG_KSU=y\n' \
-          >> "${DEFCONFIG_PATH}"
-
+        sed -i '/^[#[:space:]]*CONFIG_KSU[=[:space:]]/d' "${DEFCONFIG_PATH}"
+        sed -i '/^CONFIG_KSU=/d' "${DEFCONFIG_PATH}"
+        printf '\n# KernelSU\nCONFIG_KSU=y\n' >> "${DEFCONFIG_PATH}"
         echo "[✓] CONFIG_KSU=y added to ${DEFCONFIG_PATH}"
-
-        # ------------------------------------------------------------
-        # 10. Final verification
-        # ------------------------------------------------------------
-
-        echo
-        echo "========== KernelSU Integration =========="
-
-        echo "[*] Driver:"
-        echo "    ${TARGET_DIR}"
-
-        echo "[*] Commit:"
-        echo "    ${SU_COMMIT}"
-
-        echo "[*] Defconfig:"
-        echo "    ${DEFCONFIG_PATH}"
-
-        echo "[*] Configuration:"
-        grep -E \
-          '^CONFIG_KSU(=|_)' \
-          "${DEFCONFIG_PATH}" || true
-
-        echo "=========================================="
-
-        echo "[✓] SU integration completed successfully."
 
         echo "::endgroup::"
 
         # ------------------------------------------------------------
         # GitHub Step Summary
         # ------------------------------------------------------------
-
         cat >> "$GITHUB_STEP_SUMMARY" << EOF
-        ### SU Integration Summary
+        ### Integration Summary (BakaSU / KernelSU)
 
         - **Repository:** \`${REPO_URL}\`
-        - **Requested Ref:** \`${BRANCH}\`
+        - **Branch:** \`${SU_BRANCH}\`
+        - **KSU Version:** \`${KSU_VER_CODE}\`
         - **Detected Commit:** \`${SU_COMMIT}\`
         - **Driver Path:** \`${TARGET_DIR}\`
         - **Defconfig:** \`${DEFCONFIG_PATH}\`
         - **CONFIG_KSU:** Enabled
+
         EOF

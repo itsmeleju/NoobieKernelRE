@@ -1,4 +1,4 @@
-name: NoobieThingZ Kernel Builder v3
+name: NoobieThingZ Kernel Builder v4.1
 
 on:
   workflow_dispatch:
@@ -25,8 +25,8 @@ on:
           - r32p
       nomount:
         description: "No-Mount Integration"
-        required: false
-        default: "disabled"
+        required: true
+        default: "enabled"
         type: choice
         options:
           - enabled
@@ -41,8 +41,12 @@ on:
           - disabled
       localversion:
         description: "CONFIG_LOCALVERSION value"
+        required: true
+        default: "-ver.1.9.2-GA"
+      kernel_description:
+        description: "description about what's new"
         required: false
-        default: "-ver.1.8-GA"
+        default: "testing new commit changes"
 
 env:
   # ── Global Editable Build Configuration ─────────────────────────────────────
@@ -50,7 +54,7 @@ env:
   DEFCONFIG: "${{ github.event.inputs.defconfig || 'Noobie_SU_defconfig' }}"
   GPU_DRIVER: "${{ github.event.inputs.gpu_driver || 'r25p' }}"
   ksu: "${{ github.event.inputs.ksu || 'enabled' }}"
-  CONFIG_LOCALVERSION: "${{ github.event.inputs.localversion || '-ver.1.8-GA' }}"
+  CONFIG_LOCALVERSION: "${{ github.event.inputs.localversion || '-ver.1.9.2-GA' }}"
   ARCH: arm64
   SUBARCH: arm64
   DEFCONFIG_NAME: "${{ github.event.inputs.defconfig || 'Noobie_SU_defconfig' }}"
@@ -152,7 +156,7 @@ jobs:
         uses: ./.github/actions/ksu
         with:
           repository: "https://github.com/Baka-SU/BakaSU"
-          branch: "main"
+          branch: "sync-up"
 
       # ── Step 7: Build Kernel ────────────────────────────────────────────────
       - name: Build Kernel
@@ -233,6 +237,12 @@ jobs:
             echo "[*] Enabling CONFIG_KSU..."
             sed -i '/CONFIG_KSU=/d' out/.config
             echo "CONFIG_KSU=y" >> out/.config
+          fi
+
+	  if [ "${{ github.event.inputs.nomount }}" = "enabled" ]; then
+            echo "[*] Enabling CONFIG_NOMOUNT..."
+            sed -i '/CONFIG_NOMOUNT=/d' out/.config
+            echo "CONFIG_NOMOUNT=y" >> out/.config
           fi
 
           # ── 7.4 Apply GPU Driver Option
@@ -326,6 +336,9 @@ jobs:
       # ── Step 10: Extract Kernel Version & Step Summary ──────────────────────
       - name: Generate Build Metadata
         if: always()
+        env:
+          KERNEL_DESC: ${{ github.event.inputs.kernel_description || 'testing new commit changes' }}
+          NOMOUNT_STATE: ${{ github.event.inputs.nomount || 'disabled' }}
         run: |
           VERSION=$(grep -m1 '^VERSION =' Makefile 2>/dev/null | awk '{print $3}' || echo "N/A")
           PATCHLEVEL=$(grep -m1 '^PATCHLEVEL =' Makefile 2>/dev/null | awk '{print $3}' || echo "N/A")
@@ -333,14 +346,19 @@ jobs:
           EXTRAVERSION=$(grep -m1 '^EXTRAVERSION =' Makefile 2>/dev/null | awk '{print $3}' || echo "")
           KERNEL_FULL_VER="${VERSION}.${PATCHLEVEL}.${SUBLEVEL}${EXTRAVERSION}${CONFIG_LOCALVERSION}"
 
+          # Sanitize pipes/newlines in description so it doesn't break the Markdown table
+          SAFE_DESC=$(echo "${KERNEL_DESC}" | tr '\n' ' ' | sed 's/|/\\|/g')
+
           {
             echo "### Build Metadata"
             echo "| Parameter | Value |"
             echo "|---|---|"
             echo "| **Status** | \`${{ job.status }}\` |"
+            echo "| **Description** | ${SAFE_DESC} |"
             echo "| **Defconfig** | \`${DEFCONFIG}\` |"
             echo "| **GPU Driver** | \`${GPU_DRIVER}\` |"
             echo "| **KSU integrate** | \`${ksu}\` |"
+            echo "| **NoMount integrate** | \`${NOMOUNT_STATE}\` |"
             echo "| **Kernel Version** | \`${KERNEL_FULL_VER}\` |"
             echo "| **Output ZIP** | \`${KERNEL_ZIP:-N/A}\` |"
             echo "| **Telegram Channel** | [Bootloopzz](https://t.me/Bootloopzz) |"

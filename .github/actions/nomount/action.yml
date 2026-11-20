@@ -7,10 +7,23 @@ inputs:
     description: 'Path to the Linux kernel source directory'
     required: false
     default: '.'
+  repository:
+    description: 'NoMount Git repository URL'
+    required: false
+    default: 'https://github.com/maxsteeel/nomount'
+  branch:
+    description: 'NoMount repository branch'
+    required: false
+    default: 'master'
   enable-config:
     description: 'Append CONFIG_NOMOUNT=y to .config if it exists'
     required: false
     default: 'true'
+
+outputs:
+  nomount-version:
+    description: 'Detected NoMount module version'
+    value: '${{ steps.summary.outputs.nomount_ver }}'
 
 runs:
   using: 'composite'
@@ -19,7 +32,9 @@ runs:
       shell: bash
       working-directory: ${{ inputs.kernel-dir }}
       run: |
-        curl -fsSL https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -
+        REPO_RAW="${{ inputs.repository }}"
+        REPO_RAW="${REPO_RAW/github.com/raw.githubusercontent.com}"
+        curl -fsSL "${REPO_RAW}/refs/heads/${{ inputs.branch }}/kernel/setup.sh" | bash -
 
     - name: Patch fs/Kconfig
       shell: bash
@@ -69,7 +84,8 @@ runs:
           echo "CONFIG_NOMOUNT=y ensured in .config"
         fi
 
-    - name: Verify Setup
+    - name: Verify Setup & Generate Summary
+      id: summary
       shell: bash
       working-directory: ${{ inputs.kernel-dir }}
       run: |
@@ -78,3 +94,59 @@ runs:
         grep -Fxq 'source "fs/nomount/Kconfig"' fs/Kconfig || { echo "Error: Missing source entry in fs/Kconfig"; exit 1; }
         grep -Fxq 'obj-$(CONFIG_NOMOUNT) += nomount/' fs/Makefile || { echo "Error: Missing build entry in fs/Makefile"; exit 1; }
         echo "Verification passed: NoMount is integrated into the kernel tree."
+
+        REPO_URL="${{ inputs.repository }}"
+        NOMOUNT_BRANCH="${{ inputs.branch }}"
+        NOMOUNT_VERSION="unknown"
+        NOMOUNT_COMMIT="unknown"
+
+        # Locate module.prop to extract version
+        PROP_FILE=""
+        for candidate in "NoMount/module/module.prop" "nomount/module/module.prop" "fs/nomount/module.prop"; do
+          if [ -f "$candidate" ]; then
+            PROP_FILE="$candidate"
+            break
+          fi
+        done
+
+        if [ -n "$PROP_FILE" ]; then
+          NOMOUNT_VERSION=$(grep -m1 '^version=' "$PROP_FILE" | cut -d'=' -f2 | tr -d '\r' || echo "unknown")
+        fi
+
+        # Check git metadata if NoMount/fs/nomount is a git repo
+        for gitdir in "NoMount" "nomount" "fs/nomount"; do
+          if [ -d "$gitdir/.git" ] || git -C "$gitdir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            NOMOUNT_COMMIT=$(git -C "$gitdir" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            DETECTED_BR=$(git -C "$gitdir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+            if [ -n "$DETECTED_BR" ] && [ "$DETECTED_BR" != "HEAD" ]; then
+              NOMOUNT_BRANCH="$DETECTED_BR"
+            fi
+            break
+          fi
+        done
+
+        # Check CONFIG_NOMOUNT status in .config or defconfig
+        CONFIG_STATUS="Enabled (Pending defconfig)"
+        if [ -f ".config" ] && grep -q "^CONFIG_NOMOUNT=y" .config; then
+          CONFIG_STATUS="Enabled"
+        elif [ -n "${DEFCONFIG_PATH:-}" ] && [ -f "${DEFCONFIG_PATH}" ] && grep -q "^CONFIG_NOMOUNT=y" "${DEFCONFIG_PATH}"; then
+          CONFIG_STATUS="Enabled"
+        elif [ "${{ inputs.enable-config }}" = "true" ]; then
+          CONFIG_STATUS="Enabled"
+        else
+          CONFIG_STATUS="Disabled"
+        fi
+
+        echo "nomount_ver=${NOMOUNT_VERSION}" >> "$GITHUB_OUTPUT"
+
+        cat >> "$GITHUB_STEP_SUMMARY" << EOF
+        ### Integration Summary (NoMount)
+
+        - **Repository:** \`${REPO_URL}\`
+        - **Branch:** \`${NOMOUNT_BRANCH}\`
+        - **NoMount Version:** \`${NOMOUNT_VERSION}\`
+        - **Detected Commit:** \`${NOMOUNT_COMMIT}\`
+        - **Driver Path:** \`fs/nomount\`
+        - **CONFIG_NOMOUNT:** ${CONFIG_STATUS}
+
+        EOF
