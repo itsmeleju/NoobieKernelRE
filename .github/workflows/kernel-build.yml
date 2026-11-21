@@ -143,8 +143,8 @@ jobs:
           link: ${{ env.TOOLCHAIN_LINK }}
           install-dir: ${{ github.workspace }}/clang
           cache-hit: ${{ steps.cache-toolchain.outputs.cache-hit }}
-          
-      # ── Step 6.1: Setup Clang and Build Environment ───────────────────────────
+
+      # ── Step 6.1: Integrate NoMount ─────────────────────────────────────────
       - name: Integrate NoMount
         if: ${{ github.event.inputs.nomount == 'enabled' }}
         uses: ./.github/actions/nomount
@@ -232,14 +232,14 @@ jobs:
             echo "CONFIG_LOCALVERSION=\"${CONFIG_LOCALVERSION}\"" >> out/.config
           fi
 
-          # ── 7.3 Apply KSU Config
+          # ── 7.3 Apply KSU & NoMount Config
           if [ "${ksu}" = "enabled" ]; then
             echo "[*] Enabling CONFIG_KSU..."
             sed -i '/CONFIG_KSU=/d' out/.config
             echo "CONFIG_KSU=y" >> out/.config
           fi
 
-	  if [ "${{ github.event.inputs.nomount }}" = "enabled" ]; then
+          if [ "${{ github.event.inputs.nomount }}" = "enabled" ]; then
             echo "[*] Enabling CONFIG_NOMOUNT..."
             sed -i '/CONFIG_NOMOUNT=/d' out/.config
             echo "CONFIG_NOMOUNT=y" >> out/.config
